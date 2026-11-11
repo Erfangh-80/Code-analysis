@@ -1,0 +1,94 @@
+openapi: 3.0.3
+info:
+  title: Code Hotspot Analyzer API
+  version: 0.1.0
+  description: Local-only API. All timestamps are UTC RFC3339 and ranges use [since, until).
+servers:
+  - url: /api/v1
+security:
+  - AnalyzerToken: []
+paths:
+  /health:
+    get:
+      security: []
+      summary: Health check
+      responses: { '200': { description: OK } }
+  /analyses:
+    get:
+      summary: List persisted analyses
+      responses: { '200': { description: Analyses, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Analysis' } } } } } } }
+    post:
+      summary: Queue an analysis; returns without waiting for analysis completion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAnalysis' }
+      responses:
+        '202': { description: Queued }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /analyses/{analysisId}:
+    parameters: [ { $ref: '#/components/parameters/AnalysisId' } ]
+    get:
+      summary: Get status, actual snapshot SHA, configuration and warnings
+      responses: { '200': { description: Analysis, content: { application/json: { schema: { $ref: '#/components/schemas/Analysis' } } } }, '404': { $ref: '#/components/responses/Error' } }
+  /analyses/{analysisId}/files:
+    parameters: [ { $ref: '#/components/parameters/AnalysisId' } ]
+    get:
+      summary: List files ordered by score descending
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: language, in: query, schema: { enum: [go, python, javascript] } }
+        - { name: module, in: query, schema: { type: string } }
+        - { name: heatmap_x, in: query, schema: { type: integer } }
+        - { name: heatmap_y, in: query, schema: { type: integer } }
+        - { name: bins, in: query, schema: { type: integer, default: 10 } }
+      responses: { '200': { description: File page }, '404': { $ref: '#/components/responses/Error' } }
+  /analyses/{analysisId}/files/{fileId}:
+    parameters: [ { $ref: '#/components/parameters/AnalysisId' }, { name: fileId, in: path, required: true, schema: { type: string } } ]
+    get:
+      summary: Get static, Git, normalized and contribution details; never source content
+      responses: { '200': { description: File, content: { application/json: { schema: { $ref: '#/components/schemas/FileResult' } } } }, '404': { $ref: '#/components/responses/Error' } }
+  /analyses/{analysisId}/hotspots:
+    parameters: [ { $ref: '#/components/parameters/AnalysisId' }, { name: level, in: query, schema: { enum: [file, module], default: file } } ]
+    get: { summary: Ranked file or module hotspots, responses: { '200': { description: Hotspots } } }
+  /analyses/{analysisId}/modules:
+    parameters: [ { $ref: '#/components/parameters/AnalysisId' } ]
+    get: { summary: Module aggregations, responses: { '200': { description: Modules } } }
+  /analyses/{analysisId}/heatmap:
+    parameters: [ { $ref: '#/components/parameters/AnalysisId' }, { name: level, in: query, schema: { enum: [file, module], default: file } }, { name: bins, in: query, schema: { type: integer, minimum: 2, maximum: 50, default: 10 } } ]
+    get: { summary: 2D normalized churn/complexity grid, responses: { '200': { description: Heatmap } } }
+  /analyses/{analysisId}/reports:
+    parameters: [ { $ref: '#/components/parameters/AnalysisId' }, { name: format, in: query, required: true, schema: { enum: [json, csv] } }, { name: level, in: query, required: true, schema: { enum: [file, module] } } ]
+    get: { summary: Download JSON or UTF-8 CSV; formula-like text cells are escaped, responses: { '200': { description: Report } } }
+  /analyses/{analysisId}/evaluations:
+    parameters: [ { $ref: '#/components/parameters/AnalysisId' } ]
+    post:
+      summary: Queue a future bug-fix proxy evaluation
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { history: { $ref: '#/components/schemas/HistoryRange' } } } } } }
+      responses: { '202': { description: Evaluation queued }, '400': { $ref: '#/components/responses/Error' } }
+  /analyses/{analysisId}/evaluations/{evaluationId}:
+    parameters: [ { $ref: '#/components/parameters/AnalysisId' }, { name: evaluationId, in: path, required: true, schema: { type: string } } ]
+    get: { summary: Get evaluation status and nullable Spearman result, responses: { '200': { description: Evaluation }, '404': { $ref: '#/components/responses/Error' } } }
+components:
+  securitySchemes: { AnalyzerToken: { type: apiKey, in: header, name: X-Analyzer-Token } }
+  parameters: { AnalysisId: { name: analysisId, in: path, required: true, schema: { type: string } } }
+  responses: { Error: { description: Controlled error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } } }
+  schemas:
+    CreateAnalysis:
+      type: object
+      required: [repository_path]
+      properties:
+        repository_path: { type: string, example: /home/user/repositories/my-project }
+        ref: { type: string, default: HEAD, description: a reachable local commit ref or full SHA }
+        languages: { type: array, items: { enum: [go, python, javascript] }, default: [go, python, javascript] }
+        history: { $ref: '#/components/schemas/HistoryRange' }
+        weights: { $ref: '#/components/schemas/Weights' }
+    HistoryRange: { type: object, properties: { since: { type: string, format: date-time }, until: { type: string, format: date-time } } }
+    Weights: { type: object, properties: { complexity: { type: number, default: 0.5 }, churn: { type: number, default: 0.3 }, frequency: { type: number, default: 0.2 } } }
+    Analysis: { type: object, required: [id, status, history, weights], properties: { id: { type: string }, status: { enum: [queued, running, completed, partial, failed] }, commit_sha: { type: string }, history_complete: { type: boolean }, warnings: { type: array, items: { type: string } }, current_stage: { type: string }, files_processed: { type: integer }, files_discovered: { type: integer } } }
+    FileResult: { type: object, properties: { id: { type: string }, path: { type: string }, module: { type: string }, static: { type: object }, git: { type: object }, normalized: { type: object }, effective_weight: { $ref: '#/components/schemas/Weights' }, contributions: { type: object }, hotspot_score: { type: number, nullable: true }, score_reason: { type: string, nullable: true } } }
+    Error: { type: object, properties: { error: { type: object, properties: { code: { type: string }, message: { type: string } } }, request_id: { type: string } } }
