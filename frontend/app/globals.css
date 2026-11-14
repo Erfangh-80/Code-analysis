@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --canvas: 210 40% 98%; --surface: 0 0% 100%; --ink: 222 34% 14%; --muted: 215 16% 45%; --line: 214 24% 89%; --brand: 219 78% 48%; --danger: 0 72% 51%; }
+.dark { --canvas: 222 30% 9%; --surface: 222 28% 13%; --ink: 210 40% 96%; --muted: 214 18% 70%; --line: 219 19% 23%; --brand: 213 94% 66%; --danger: 0 83% 70%; }
+* { border-color: hsl(var(--line)); }
+html { background: hsl(var(--canvas)); scroll-behavior: smooth; }
+body { min-height: 100vh; background: hsl(var(--canvas)); color: hsl(var(--ink)); font-family: Tahoma, Arial, sans-serif; }
+::selection { background: hsl(var(--brand) / .22); }
+@layer components {
+  .panel { @apply rounded-2xl border bg-surface shadow-soft; }
+  .label { @apply mb-1.5 block text-xs font-semibold text-muted; }
+  .focus-ring { @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900; }
+}
