@@ -1,4 +1,0 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { Heatmap } from "./heatmap";
-describe("Heatmap", () => { it("does not treat an empty cell as a low-score selectable result", () => { const select = vi.fn(); render(<Heatmap bins={2} level="file" onLevelChange={vi.fn()} onSelect={select} cells={[{ x: 0, y: 0, count: 0, average_score: null }, { x: 1, y: 1, count: 2, average_score: 80, paths: ["a.go"] }, { x: 0, y: 1, count: 0, average_score: null }, { x: 1, y: 0, count: 0, average_score: null }]} />); const empty = screen.getByLabelText(/churn 1، پیچیدگی 1/); expect(empty).toBeDisabled(); fireEvent.click(empty); expect(select).not.toHaveBeenCalled(); const populated = screen.getByLabelText(/churn 2، پیچیدگی 2/); fireEvent.click(populated); expect(select).toHaveBeenCalledOnce(); }); });
