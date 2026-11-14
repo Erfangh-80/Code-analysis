@@ -1,0 +1,250 @@
+:root {
+  --ink: #122022;
+  --muted: #526466;
+  --paper: #f7f6f1;
+  --card: #ffffff;
+  --line: #d8ddda;
+  --pine: #075b4c;
+  --pine-dark: #043f35;
+  --mint: #b9e6cd;
+  --amber: #f8bd54;
+  --shadow: 0 18px 50px rgb(18 32 34 / 0.09);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--paper);
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% 2%, rgb(185 230 205 / 0.5), transparent 25rem),
+    radial-gradient(circle at 95% 80%, rgb(248 189 84 / 0.24), transparent 24rem),
+    var(--paper);
+  font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.5;
+}
+
+button,
+a,
+input {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+.site-shell {
+  width: min(1120px, calc(100% - 3rem));
+  margin: 0 auto;
+  padding: 5.5rem 0 4rem;
+}
+
+.hero {
+  max-width: 760px;
+}
+
+.eyebrow {
+  margin: 0 0 0.85rem;
+  color: var(--pine);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1,
+h2,
+h3 {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.035em;
+}
+
+h1 {
+  max-width: 690px;
+  margin-bottom: 1.2rem;
+  font-size: clamp(3.25rem, 8vw, 6.5rem);
+  line-height: 0.96;
+}
+
+h2 {
+  margin-bottom: 1rem;
+  font-size: clamp(2rem, 4vw, 3.35rem);
+  line-height: 1.03;
+}
+
+h3 {
+  margin-bottom: 0.75rem;
+  font-size: 1.45rem;
+}
+
+.hero-copy {
+  max-width: 630px;
+  margin-bottom: 2rem;
+  color: var(--muted);
+  font-size: clamp(1.05rem, 2vw, 1.26rem);
+}
+
+.local-boundary {
+  display: flex;
+  max-width: 620px;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgb(7 91 76 / 0.22);
+  border-radius: 0.9rem;
+  background: rgb(255 255 255 / 0.64);
+}
+
+.local-boundary span {
+  margin-top: 0.1rem;
+  color: var(--pine);
+  font-size: 1rem;
+}
+
+.local-boundary p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+}
+
+.principles {
+  margin-top: 7rem;
+}
+
+.section-heading {
+  max-width: 630px;
+}
+
+.principle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 0;
+  margin: 2rem 0 0;
+  list-style: none;
+}
+
+.principle-card {
+  min-height: 250px;
+  padding: 1.65rem;
+  border: 1px solid var(--line);
+  border-radius: 1.1rem;
+  background: rgb(255 255 255 / 0.76);
+  box-shadow: var(--shadow);
+}
+
+.principle-card p {
+  margin-bottom: 0;
+  color: var(--muted);
+}
+
+.principle-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  margin-bottom: 2.6rem;
+  border-radius: 50%;
+  color: var(--pine-dark);
+  background: var(--mint);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.next-step {
+  display: flex;
+  gap: 3rem;
+  justify-content: space-between;
+  align-items: end;
+  margin-top: 6rem;
+  padding: 2.3rem;
+  border-radius: 1.2rem;
+  color: #f6fffb;
+  background: var(--pine-dark);
+}
+
+.next-step h2 {
+  max-width: 570px;
+  margin-bottom: 0.7rem;
+}
+
+.next-step .eyebrow {
+  color: var(--mint);
+}
+
+.next-step p:not(.eyebrow) {
+  max-width: 670px;
+  margin-bottom: 0;
+  color: rgb(246 255 251 / 0.8);
+}
+
+.health-link {
+  display: inline-flex;
+  flex: none;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.78rem 1rem;
+  border-radius: 0.65rem;
+  color: var(--pine-dark);
+  background: #f6fffb;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.health-link:hover {
+  background: var(--mint);
+}
+
+.health-link:focus-visible {
+  outline: 3px solid var(--amber);
+  outline-offset: 4px;
+}
+
+@media (max-width: 720px) {
+  .site-shell {
+    width: min(100% - 2rem, 1120px);
+    padding-top: 3.5rem;
+  }
+
+  .principles {
+    margin-top: 4.5rem;
+  }
+
+  .principle-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .principle-card {
+    min-height: 0;
+  }
+
+  .principle-number {
+    margin-bottom: 1.5rem;
+  }
+
+  .next-step {
+    display: block;
+    margin-top: 4rem;
+    padding: 1.6rem;
+  }
+
+  .health-link {
+    margin-top: 1.5rem;
+  }
+}

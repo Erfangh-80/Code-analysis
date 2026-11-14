@@ -1,10 +1,10 @@
 # Code Risk Analyzer
 
-A local-first system for identifying software files that deserve earlier review or refactoring attention. Given the **local path** to a valid Git repository, it statically analyzes Go, JavaScript, and Python source and its Git history. It combines code-complexity and change-history metrics into an explainable, configurable risk score.
+A local-first system for identifying software files that deserve earlier review or refactoring attention. Given the **local path** to a valid Git repository, it will statically analyze Go, JavaScript, and Python source and its Git history. It will combine code-complexity and change-history metrics into an explainable, configurable risk score.
 
-> **Project status — architecture foundation**
+> **Project status — runnable foundation**
 >
-> The repository currently contains the approved project structure, architecture, API contract, and engineering standards only. There is not yet an executable backend or frontend, so no analysis command or dashboard is being presented as available. Implementation begins only after the architecture stage is approved.
+> Both independent applications now start locally: a Go API with a tested health endpoint and a Next.js + TypeScript foundation UI. Repository analysis, Git metrics, risk calculation, dashboard data, and exports are intentionally not implemented yet and are not represented by mock data.
 
 ## What the product will do
 
@@ -26,71 +26,101 @@ A risk score is a prioritization aid for review and refactoring—not a claim th
 ## Local-only and safety guarantees
 
 - The Go backend runs on the machine that holds the repository being analyzed.
-- The browser sends the repository path only to that local backend over loopback; source code and repository paths are never submitted to a cloud service.
+- The browser sends a repository path only to that local backend over loopback; source code and repository paths are never submitted to a cloud service.
 - The system accepts an existing local Git repository path. It does not clone repositories or execute target code.
-- Git inspection is read-only. Analysis never modifies the target repository, its worktree, index, commits, branches, or remote configuration.
+- Git inspection will be read-only. Analysis will never modify the target repository, its worktree, index, commits, branches, or remote configuration.
 - The frontend only renders API data and user-selected filters. It does not compute metrics or risk scores.
 
-## Planned project structure
+## Project structure
 
 ```text
 .
-├── backend/                 # Independent Go module and local API service (implementation stage)
-├── frontend/                # Independent React + TypeScript application (implementation stage)
+├── backend/                 # Independent Go module and local API service
+│   ├── cmd/server/          # Composition root and graceful HTTP server
+│   └── internal/api/        # Tested local HTTP boundary
+├── frontend/                # Independent Next.js + TypeScript application
+│   ├── app/                 # App Router layout and foundation screen
+│   └── test/                # Vitest and Testing Library setup
 ├── docs/
-│   ├── architecture.md      # Approved component, data-flow, and deployment design
-│   ├── api-contract.md      # Versioned HTTP contract to implement before the UI
+│   ├── architecture.md      # Component, data-flow, and deployment design
+│   ├── api-contract.md      # Versioned HTTP contract before dashboard work
 │   └── project-skills.md    # Mandatory TDD and UI/UX standards
 └── README.md
 ```
 
-`backend/` and `frontend/` are deliberately independent folders. They will have their own dependency manifests, test commands, and development tooling. The frontend may call only the local backend API; it must not read the analyzed repository directly.
+`backend/` and `frontend/` have independent dependency manifests and test commands. The browser only calls relative API paths; Next.js proxies `/api/*` to the local Go process on `127.0.0.1:8080` during development.
 
-## Prerequisites for the implemented product
+## Prerequisites
 
-The implementation will target the following local prerequisites:
-
-| Dependency | Planned minimum | Purpose |
+| Dependency | Required version | Purpose |
 | --- | --- | --- |
 | Git | 2.30+ | Read a local repository's commit history and diffs |
-| Go | 1.23+ | Build and test the backend and static-analysis adapters |
-| Node.js | 22 LTS+ | Build and test the React frontend |
-| npm | Bundled with Node.js | Install pinned frontend dependencies |
-| A local Git repository | Any valid repository path | Analysis input; it is never uploaded |
+| Go | 1.23+ | Build and test the backend |
+| Node.js | 22.12+ | Build and test the Next.js frontend |
+| npm | Bundled with Node.js | Install locked frontend dependencies |
+| A local Git repository | Any valid repository path | Future analysis input; it is never uploaded |
 
-Exact supported versions will be pinned in the backend and frontend manifests when those modules are created.
+## Run locally
 
-## How to run
+Start the two local processes in separate terminals.
 
-There is no runnable application at this architecture-only stage. This is intentional: no command below is a placeholder for a capability that has not been implemented.
+**Terminal 1 — Go API**
 
-After the backend and frontend foundations are implemented and tested in later tasks, this section will contain only verified commands for:
+```bash
+cd backend
+go run ./cmd/server
+```
 
-1. starting the local Go API server;
-2. starting the React development UI or serving its production build locally;
-3. submitting an absolute path to a local Git repository; and
-4. running the full test suite.
+The API binds to `127.0.0.1:8080`. Verify the implemented health capability:
 
-The intended production topology is one local process or local installation: the React build is served on the same machine as the Go API, which binds to loopback by default. During development, the frontend development server will proxy relative `/api` requests to that local API. Neither topology permits a browser-facing call to a remote analysis service.
+```bash
+curl http://127.0.0.1:8080/api/v1/health
+# {"status":"ok","version":"0.1.0"}
+```
 
-## Architecture and API contract
+**Terminal 2 — Next.js UI**
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open the URL Next.js prints (normally `http://localhost:3000`). The foundation page contains no fabricated analysis data. Its **Check local API health** link uses a relative route and is proxied by Next.js to the Go service.
+
+## Test and build
+
+```bash
+# Backend
+cd backend
+go test ./...
+
+# Frontend
+cd ../frontend
+npm run typecheck
+npm test
+npm run build
+```
+
+## Implemented now vs. next
+
+| Capability | Status |
+| --- | --- |
+| Local Go service startup and graceful shutdown | Implemented |
+| `GET /api/v1/health` API contract endpoint | Implemented and unit-tested |
+| Next.js TypeScript application startup | Implemented |
+| Relative API proxy to the same-machine Go API | Implemented |
+| Foundation UI with local-only boundary messaging | Implemented and component-tested |
+| Repository path validation, static metrics, Git history, scoring, and analysis jobs | Next backend increment |
+| Dashboard, search/filter/compare, heatmap, and export | After implemented backend data exists |
+
+## Architecture and engineering standards
 
 Read these documents before implementation work:
 
-- [Overall architecture](docs/architecture.md) — boundaries, data flow, metrics, scoring, security, testing, and UI design direction.
-- [API contract](docs/api-contract.md) — endpoint behavior and schemas that the backend must implement before dashboard work begins.
-- [Project skills](docs/project-skills.md) — the mandatory TDD and UI/UX Pro Max practices.
-
-## Delivery sequence
-
-The project will move in explicit, reviewable increments:
-
-1. **Architecture foundation** — this change: folders, README, architecture, API contract, and standards.
-2. **Backend foundation** — Go module, domain types, configuration, API shell, and red tests followed by tested implementation.
-3. **Static analysis adapters** — real Go, JavaScript, and Python metric extraction against fixture repositories.
-4. **Git-history analysis and scoring** — real history metrics, configurable score calculation, and API integration.
-5. **Frontend foundation** — React UI consuming the implemented API contract.
-6. **Dashboard and exports** — heatmap, ranking, filtering, comparison, JSON/CSV export, accessibility, and end-to-end tests.
+- [Overall architecture](docs/architecture.md) — boundaries, data flow, metrics, scoring, security, testing, and UX direction.
+- [API contract](docs/api-contract.md) — endpoint behavior and schemas that backend work must satisfy before dashboard work begins.
+- [Project skills](docs/project-skills.md) — mandatory TDD and UI/UX Pro Max practices.
 
 A stage is not complete until its real implementation, tests, and results have been reviewed.
 
