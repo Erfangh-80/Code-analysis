@@ -6,10 +6,10 @@ info:
     name: License not selected
     url: https://github.com/Erfangh-80/Code-analysis
   description: |
-    Local-only API for Code Risk Analyzer. The static-analysis endpoint reads
-    source files from a rootPath on the same machine as this Go service. It
-    never accepts repository source content in the request and never executes
-    files it reads.
+    Local-only API for Code Risk Analyzer. Static analysis reads source files
+    and Git analysis reads history from paths on the same machine as this Go
+    service. Risk analysis scores only their supplied analytical facts. The API
+    never accepts repository source content and never executes files it reads.
 servers:
   - url: http://127.0.0.1:8080/api/v1
     description: Default local-only server
@@ -117,6 +117,40 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Local Git history could not be read completely
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '405':
+          description: Method not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /risk-analysis:
+    post:
+      summary: Calculate explainable risk hotspots from analytical metrics
+      operationId: calculateRiskHotspots
+      description: |
+        Scores file metrics using a local, deterministic risk profile. The caller
+        supplies metrics previously obtained from the local static and Git
+        analyzers; this endpoint does not execute source code or contact a
+        remote service. Omit profile to use risk-v1 defaults.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RiskAnalysisRequest'
+      responses:
+        '200':
+          description: Ranked file hotspots, module aggregates, score contributions, and heatmap cells
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskAnalysisReport'
+        '400':
+          description: Invalid metrics, profile weights, risk bands, or heatmap axes
           content:
             application/json:
               schema:
@@ -385,6 +419,256 @@ components:
           minimum: 0
           maximum: 1
           description: One minus changeConcentration; higher values mean changes were distributed across months.
+    RiskAnalysisRequest:
+      type: object
+      additionalProperties: false
+      required: [files]
+      properties:
+        files:
+          type: array
+          minItems: 1
+          description: Per-file metric records produced by the local static- and Git-analysis stages.
+          items:
+            $ref: '#/components/schemas/HotspotInput'
+        profile:
+          $ref: '#/components/schemas/RiskProfile'
+        heatmap:
+          $ref: '#/components/schemas/HeatmapConfiguration'
+    HotspotInput:
+      type: object
+      additionalProperties: false
+      required: [path, metrics]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          description: Repository-relative path. Absolute and root-escaping paths are rejected.
+          example: internal/api/server.go
+        metrics:
+          $ref: '#/components/schemas/HotspotMetrics'
+    HotspotMetrics:
+      type: object
+      additionalProperties: false
+      required: [linesOfCode, maxFunctionLength, maxClassLength, gitChurn, changeFrequency]
+      properties:
+        linesOfCode:
+          type: integer
+          minimum: 0
+        maxFunctionLength:
+          type: integer
+          minimum: 0
+        maxClassLength:
+          type: integer
+          minimum: 0
+        gitChurn:
+          type: integer
+          minimum: 0
+        changeFrequency:
+          type: integer
+          minimum: 0
+      example:
+        linesOfCode: 240
+        maxFunctionLength: 55
+        maxClassLength: 0
+        gitChurn: 180
+        changeFrequency: 12
+    RiskProfile:
+      type: object
+      additionalProperties: false
+      required: [version, weights, bands]
+      description: A complete local profile. Weights must be finite, non-negative, recognized metric identifiers and sum to 1.
+      properties:
+        version:
+          type: string
+          minLength: 1
+          example: team-risk-v1
+        weights:
+          type: object
+          minProperties: 1
+          propertyNames:
+            $ref: '#/components/schemas/RiskMetric'
+          additionalProperties:
+            type: number
+            minimum: 0
+          description: Relative weights keyed by lines_of_code, max_function_length, max_class_length, git_churn, or change_frequency. The supplied weights must sum to 1.
+          example:
+            lines_of_code: 0.15
+            max_function_length: 0.25
+            max_class_length: 0.10
+            git_churn: 0.25
+            change_frequency: 0.25
+        bands:
+          $ref: '#/components/schemas/RiskBands'
+    RiskBands:
+      type: object
+      additionalProperties: false
+      required: [lowMax, mediumMax]
+      description: Scores 0 through lowMax are low, scores through mediumMax are medium, and higher scores are high.
+      properties:
+        lowMax:
+          type: integer
+          minimum: 0
+          maximum: 98
+          default: 34
+        mediumMax:
+          type: integer
+          minimum: 1
+          maximum: 99
+          default: 64
+    HeatmapConfiguration:
+      type: object
+      additionalProperties: false
+      required: [xMetric, yMetric]
+      description: Two distinct risk metric identifiers. Omit this object for git_churn by lines_of_code.
+      properties:
+        xMetric:
+          $ref: '#/components/schemas/RiskMetric'
+        yMetric:
+          $ref: '#/components/schemas/RiskMetric'
+    RiskMetric:
+      type: string
+      enum: [lines_of_code, max_function_length, max_class_length, git_churn, change_frequency]
+    RiskLevel:
+      type: string
+      enum: [low, medium, high]
+    RiskAnalysisReport:
+      type: object
+      required: [profile, formula, normalization, limitations, files, modules, heatmap]
+      properties:
+        profile:
+          $ref: '#/components/schemas/RiskProfile'
+        formula:
+          type: string
+          description: Exact scoring formula applied by the backend.
+          example: round(100 × sum(weight(metric) × normalized(metric, file)))
+        normalization:
+          type: string
+          description: Exact cross-file normalization rule applied by the backend.
+          example: Each metric is divided by its nearest-rank 95th-percentile value across the requested files and capped at 1.
+        limitations:
+          type: array
+          description: Model limits that must be considered when interpreting scores.
+          items:
+            type: string
+        files:
+          type: array
+          description: Hotspots ordered by descending score, then normalized path; rank starts at 1.
+          items:
+            $ref: '#/components/schemas/Hotspot'
+        modules:
+          type: array
+          description: Directory aggregates ordered by descending mean score, then highest file score, then path.
+          items:
+            $ref: '#/components/schemas/ModuleHotspot'
+        heatmap:
+          $ref: '#/components/schemas/HeatmapData'
+    Hotspot:
+      type: object
+      required: [path, module, metrics, score, level, rank, contributions]
+      properties:
+        path:
+          type: string
+        module:
+          type: string
+          description: Repository-relative directory, or . for the repository root.
+        metrics:
+          $ref: '#/components/schemas/HotspotMetrics'
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        level:
+          $ref: '#/components/schemas/RiskLevel'
+        rank:
+          type: integer
+          minimum: 1
+        contributions:
+          type: array
+          description: One contribution for each current model metric, including zero-weight metrics.
+          items:
+            $ref: '#/components/schemas/RiskContribution'
+    RiskContribution:
+      type: object
+      required: [metric, raw, normalizationCap, normalized, weight, weighted]
+      properties:
+        metric:
+          $ref: '#/components/schemas/RiskMetric'
+        raw:
+          type: integer
+          minimum: 0
+        normalizationCap:
+          type: integer
+          minimum: 0
+          description: The metric's nearest-rank 95th-percentile value for this response population.
+        normalized:
+          type: number
+          minimum: 0
+          maximum: 1
+        weight:
+          type: number
+          minimum: 0
+          maximum: 1
+        weighted:
+          type: number
+          minimum: 0
+          maximum: 1
+    ModuleHotspot:
+      type: object
+      required: [path, fileCount, score, level, highestFileScore]
+      properties:
+        path:
+          type: string
+          description: Repository-relative directory, or . for the repository root.
+        fileCount:
+          type: integer
+          minimum: 1
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Rounded arithmetic mean of its file hotspot scores.
+        level:
+          $ref: '#/components/schemas/RiskLevel'
+        highestFileScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+    HeatmapData:
+      type: object
+      required: [xMetric, yMetric, cells]
+      properties:
+        xMetric:
+          $ref: '#/components/schemas/RiskMetric'
+        yMetric:
+          $ref: '#/components/schemas/RiskMetric'
+        cells:
+          type: array
+          description: Cells in the same rank order as files. The backend prepares all coordinates and scores.
+          items:
+            $ref: '#/components/schemas/HeatmapCell'
+    HeatmapCell:
+      type: object
+      required: [path, module, xValue, yValue, score, level, rank]
+      properties:
+        path:
+          type: string
+        module:
+          type: string
+        xValue:
+          type: integer
+          minimum: 0
+        yValue:
+          type: integer
+          minimum: 0
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        level:
+          $ref: '#/components/schemas/RiskLevel'
+        rank:
+          type: integer
+          minimum: 1
     ErrorResponse:
       type: object
       required: [error]

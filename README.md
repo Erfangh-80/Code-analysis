@@ -1,10 +1,10 @@
 # Code Risk Analyzer
 
-A local-first system for identifying software files that deserve earlier review or refactoring attention. Given the **local path** to a valid Git repository, it will statically analyze Go, JavaScript, and Python source and its Git history. It will combine code-complexity and change-history metrics into an explainable, configurable risk score.
+A local-first system for identifying software files that deserve earlier review or refactoring attention. Given the **local path** to a valid Git repository, it statically analyzes Go, JavaScript, and Python source and reads its Git history. It combines implemented code-shape and change-history metrics into an explainable, configurable risk score.
 
-> **Project status — runnable foundation**
+> **Project status — backend analysis and scoring increment**
 >
-> Both independent applications now start locally: a Go API with a tested health endpoint and a Next.js + TypeScript foundation UI. Repository analysis, Git metrics, risk calculation, dashboard data, and exports are intentionally not implemented yet and are not represented by mock data.
+> The local Go backend now provides tested static analysis, Git-history analysis, and an explainable Risk Engine. The Next.js + TypeScript UI remains a foundation only: it does not display fabricated dashboard data or calculate analytical values.
 
 ## What the product will do
 
@@ -13,12 +13,11 @@ A local-first system for identifying software files that deserve earlier review 
 - Analyze the complete Git history by default, with optional inclusive start and end times.
 - Support Go, JavaScript, and Python in the MVP.
 - Collect per-file metrics including:
-  - cyclomatic complexity;
-  - lines of code (LOC);
-  - function and class length;
+  - static lines of code (LOC);
+  - maximum function and class length;
   - Git churn (added plus deleted lines); and
   - change frequency (distinct commits affecting a file).
-- Normalize and combine those metrics with a versioned, locally configurable scoring profile.
+- Normalize and combine the implemented static and Git metrics with a versioned, locally configurable scoring profile.
 - Present a dashboard with a two-dimensional heatmap, ranked files, metric details, search and filters, comparisons, and JSON/CSV export.
 
 A risk score is a prioritization aid for review and refactoring—not a claim that a file contains a bug.
@@ -111,8 +110,11 @@ npm run build
 | Next.js TypeScript application startup | Implemented |
 | Relative API proxy to the same-machine Go API | Implemented |
 | Foundation UI with local-only boundary messaging | Implemented and component-tested |
-| Repository path validation, static metrics, Git history, scoring, and analysis jobs | Next backend increment |
-| Dashboard, search/filter/compare, heatmap, and export | After implemented backend data exists |
+| Local path validation for selected static files | Implemented and unit-tested |
+| Static metrics for Go, JavaScript, and Python | Implemented and unit-tested |
+| Read-only Git history metrics, including full-history default | Implemented and unit-tested |
+| Explainable per-file Risk Engine, ranking, module aggregates, and heatmap data | Implemented and unit-tested |
+| Analysis jobs, discovery, storage, dashboard, search/filter/compare, and export | Next increments |
 
 ## Architecture and engineering standards
 
