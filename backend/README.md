@@ -1,6 +1,11 @@
 # Backend
 
-Independent Go module for the local Code Risk Analyzer API.
+Independent Go module for the local Code Risk Analyzer API. The service reads selected source files from the same machine, parses them statically, and never executes target code.
+
+## Prerequisites
+
+- Go 1.23 or later;
+- a C11 compiler such as GCC or Clang with CGO enabled, required by the pinned Tree-sitter language grammars.
 
 ## Run locally
 
@@ -9,24 +14,60 @@ cd backend
 go run ./cmd/server
 ```
 
-The server binds to `127.0.0.1:8080` by default. Its only implemented endpoint at this foundation stage is:
+The server binds to `127.0.0.1:8080` by default.
 
 ```bash
 curl http://127.0.0.1:8080/api/v1/health
 ```
 
-Expected response:
-
 ```json
 {"status":"ok","version":"0.1.0"}
 ```
 
-The API exposes no repository-analysis endpoint yet; it does not claim analysis capability until the static-analysis, Git-history, and scoring services are implemented and tested.
+## Implemented static-analysis API
+
+`POST /api/v1/static-analysis` accepts an absolute local `rootPath` and one or more paths relative to that root. It reads only those local files, detects Go, JavaScript, and Python by extension, and returns real file and module metrics.
+
+```bash
+curl --request POST http://127.0.0.1:8080/api/v1/static-analysis \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "rootPath": "/absolute/path/to/local/repository",
+    "files": ["internal/service/worker.go", "web/app.js", "scripts/report.py"]
+  }'
+```
+
+The response includes:
+
+- functions and methods;
+- JavaScript/Python classes;
+- physical non-blank, non-comment LOC;
+- maximum and total function/class lengths;
+- file-level metrics and directory-level module aggregates;
+- honest statuses for empty, non-executable, unsupported, parse-error, fallback, and unreadable files.
+
+Parser failures are stored as safe local metadata—never source content—and can be reviewed with:
+
+```bash
+curl http://127.0.0.1:8080/api/v1/static-analysis/failures
+```
+
+## Swagger / OpenAPI
+
+The Swagger-compatible OpenAPI 3.1 specification is versioned at [`internal/api/openapi.yaml`](internal/api/openapi.yaml) and served locally by the backend:
+
+```bash
+curl http://127.0.0.1:8080/api/v1/openapi.yaml
+```
+
+It documents the health, static-analysis, failure-record, and OpenAPI endpoints. No externally hosted Swagger UI is used.
 
 ## Test
 
 ```bash
 go test ./...
 ```
+
+The tests use real Go, JavaScript, and Python source fixtures, parser-error fixtures, temporary local files, and HTTP handlers. They never execute fixture source.
 
 Use `go run ./cmd/server -addr 127.0.0.1:8081` to select another explicit local address.
