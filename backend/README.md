@@ -54,13 +54,19 @@ curl http://127.0.0.1:8080/api/v1/static-analysis/failures
 
 ## Swagger / OpenAPI
 
-The Swagger-compatible OpenAPI 3.1 specification is versioned at [`internal/api/openapi.yaml`](internal/api/openapi.yaml) and served locally by the backend:
+The backend embeds Swagger UI 5.35.0 locally. After starting the server, open this address in a browser:
+
+```text
+http://127.0.0.1:8080/swagger/
+```
+
+Swagger UI, its JavaScript/CSS assets, and the OpenAPI definition are all served from the local backend; the page does not load documentation assets or specifications from an external service. The versioned OpenAPI 3.1 specification remains available at [`internal/api/openapi.yaml`](internal/api/openapi.yaml) and:
 
 ```bash
 curl http://127.0.0.1:8080/api/v1/openapi.yaml
 ```
 
-It documents the health, static-analysis, failure-record, and OpenAPI endpoints. No externally hosted Swagger UI is used.
+The UI documents the health, static-analysis, failure-record, and OpenAPI endpoints. The **Try it out** button calls the same local Go service.
 
 ## Test
 
