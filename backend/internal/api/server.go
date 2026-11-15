@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/Erfangh-80/code-analysis/backend/internal/analyzer/static"
 	"github.com/Erfangh-80/code-analysis/backend/internal/application"
@@ -71,6 +72,10 @@ func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 	case "/api/v1/static-analysis/failures":
 		handler.handleStaticAnalysisFailures(response, request)
 	default:
+		if request.URL.Path == "/swagger" || strings.HasPrefix(request.URL.Path, "/swagger/") {
+			handler.handleSwaggerUI(response, request)
+			return
+		}
 		writeError(response, http.StatusNotFound, "NOT_FOUND", "The requested API route does not exist.")
 	}
 }

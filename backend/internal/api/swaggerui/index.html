@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>مستندات محلی API تحلیل ریسک کد</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/swagger/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/swagger/favicon-16x16.png" />
+    <link rel="stylesheet" href="/swagger/swagger-ui.css" />
+    <style>
+      body {
+        margin: 0;
+        background: #f6f8f7;
+      }
+
+      .local-only-banner {
+        max-width: 1460px;
+        margin: 0 auto;
+        padding: 16px 20px 0;
+        color: #1f3530;
+        font-family: Tahoma, Arial, sans-serif;
+        font-size: 14px;
+        text-align: right;
+      }
+
+      .local-only-banner strong {
+        color: #075b4c;
+      }
+
+      #swagger-ui {
+        direction: ltr;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="local-only-banner">
+      <strong>مستندات محلی API</strong>
+      — این صفحه و فایل OpenAPI فقط از سرویس محلی شما دریافت می‌شوند.
+    </p>
+    <div id="swagger-ui"></div>
+    <script src="/swagger/swagger-ui-bundle.js"></script>
+    <script src="/swagger/swagger-ui-standalone-preset.js"></script>
+    <script>
+      window.onload = () => {
+        window.ui = SwaggerUIBundle({
+          url: "/api/v1/openapi.yaml",
+          dom_id: "#swagger-ui",
+          deepLinking: true,
+          docExpansion: "list",
+          defaultModelsExpandDepth: -1,
+          presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+          layout: "BaseLayout"
+        });
+      };
+    </script>
+  </body>
+</html>
