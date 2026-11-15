@@ -130,13 +130,15 @@ Language adapters use the Go standard parser for Go and pinned, locally installe
 
 Risk is configurable but deterministic and reproducible. A profile includes a unique version, enabled metrics, non-negative weights that sum to `1.0`, normalization rules, and band thresholds.
 
-For each enabled metric `m` of file `f`, the scoring service calculates a bounded normalized value `n(m,f)` in `[0,1]` from the selected run population. The initial profile uses capped percentile normalization so an extreme outlier cannot make all other files appear risk-free. The formula is:
+For each enabled metric `m` of file `f`, the scoring service calculates a bounded normalized value `n(m,f)` in `[0,1]` from the selected run population. The implemented `risk-v1` model uses nearest-rank 95th-percentile normalization: it divides a raw metric value by that metric's nearest-rank 95th-percentile value in the requested file population and caps the result at `1`. A zero percentile produces a normalized value of `0`. This prevents an extreme outlier from making every other file appear risk-free. The formula is:
 
 ```text
 risk(f) = round(100 × Σ(weight(m) × n(m,f)))
 ```
 
-Default bands are `low` (0–34), `medium` (35–64), `high` (65–79), and `critical` (80–100). Exact defaults are delivered as a local profile file and are returned in every result. The API also returns one contribution per metric so that a score is explainable. Missing or unavailable metrics are explicit: the run either uses the profile's defined missing-data policy or fails validation; it never quietly substitutes fabricated data.
+The delivered `risk-v1` profile weights lines of code `0.15`, maximum function length `0.25`, maximum class length `0.10`, Git churn `0.25`, and change frequency `0.25`. Default bands are `low` (0–34), `medium` (35–64), and `high` (65–100). The API returns the profile, formula, normalization rule, limitations, and one contribution per metric containing the raw value, normalization cap, normalized value, weight, and weighted value so a score is explainable.
+
+The score is a review/refactoring priority signal, not a defect or vulnerability prediction. It is relative to the requested population and is not directly comparable across runs with different file sets. Version 1 does not include cyclomatic complexity, semantic behavior, runtime behavior, coverage, or vulnerability data. A file with no selected-history Git record has zero churn and change frequency; Git-history diagnostics and scope must be considered when interpreting that value. A production application must obtain metric values from its static- and Git-analysis stages; it must not invent unavailable metrics.
 
 Changing a profile creates a new model version and requires a new analysis run. Existing run results remain immutable and retain the profile snapshot used to calculate them.
 

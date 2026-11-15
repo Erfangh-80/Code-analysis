@@ -95,6 +95,9 @@ func TestOpenAPISpecificationIsServedLocally(t *testing.T) {
 	if !bytes.Contains(response.Body.Bytes(), []byte("/git-analysis:")) {
 		t.Error("OpenAPI specification does not document the Git-analysis endpoint")
 	}
+	if !bytes.Contains(response.Body.Bytes(), []byte("/risk-analysis:")) {
+		t.Error("OpenAPI specification does not document the Risk Engine endpoint")
+	}
 }
 
 func writeAPIFixture(t *testing.T, path, content string) {

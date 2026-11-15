@@ -70,6 +70,64 @@ curl --request POST http://127.0.0.1:8080/api/v1/git-analysis \
 
 The result reports per-file Git churn, change frequency, distinct author count, first/last change time, rename lineage, final deletion state, and monthly change concentration/dispersion. Empty histories and shallow repositories return explicit diagnostics instead of fabricated metrics.
 
+## Implemented Risk Engine API
+
+`POST /api/v1/risk-analysis` calculates a deterministic, explainable hotspot score for each complete per-file metric record. The engine is a separate `internal/scoring` package: it does not read files, invoke Git, serve HTTP, or depend on the frontend. The API layer only decodes the request and returns the engine's report.
+
+The input must contain every current signal for every repository-relative file:
+
+- `linesOfCode`, `maxFunctionLength`, and `maxClassLength` from local static analysis;
+- `gitChurn` and `changeFrequency` from local Git-history analysis.
+
+The endpoint rejects missing, negative, unsafe, duplicate, or unknown metric fields. Server-side application orchestration can join the existing domain results with `application.BuildHotspotInputs`; the browser must only render the returned report and must never calculate a metric, normalization, risk score, band, rank, module aggregate, or heatmap coordinate.
+
+```bash
+curl --request POST http://127.0.0.1:8080/api/v1/risk-analysis \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "files": [
+      {
+        "path": "internal/api/server.go",
+        "metrics": {
+          "linesOfCode": 240,
+          "maxFunctionLength": 55,
+          "maxClassLength": 0,
+          "gitChurn": 180,
+          "changeFrequency": 12
+        }
+      }
+    ]
+  }'
+```
+
+The default local profile is `risk-v1` with these weights:
+
+| Signal | Model identifier | Weight |
+| --- | --- | ---: |
+| Lines of code | `lines_of_code` | 0.15 |
+| Maximum function length | `max_function_length` | 0.25 |
+| Maximum class length | `max_class_length` | 0.10 |
+| Git churn | `git_churn` | 0.25 |
+| Change frequency | `change_frequency` | 0.25 |
+
+A request may provide a complete versioned profile with recognized non-negative weights summing to `1.0`, plus `lowMax` and `mediumMax` thresholds. The default bands are **low** `0–34`, **medium** `35–64`, and **high** `65–100`.
+
+For each metric, the engine finds its nearest-rank 95th-percentile value across the requested files. It divides each raw value by that cap and limits the normalized result to `1`. The exact backend formula is:
+
+```text
+round(100 × sum(weight(metric) × normalized(metric, file)))
+```
+
+Each returned contribution includes the raw value, normalization cap, normalized value, weight, and weighted value. The response also includes profile, formula, normalization text, limitations, files ranked by descending score (then path), directory-level module mean scores, and backend-prepared heatmap cells. Heatmap defaults to `git_churn` on the x axis and `lines_of_code` on the y axis; callers may select two distinct supported metrics.
+
+### Interpretation limits
+
+- The score is a review/refactoring priority signal, not a prediction of defects, outages, or security vulnerabilities.
+- Scores are relative to the requested file population; scores from different runs are not directly comparable.
+- Version 1 includes only the five signals listed above. It does not include cyclomatic complexity, semantic behavior, runtime behavior, test coverage, ownership quality, or vulnerability data.
+- A path with no record in the selected Git history receives zero churn and change frequency. Inspect the Git-history scope and diagnostics before interpreting that result.
+- All metrics remain static/read-only: neither the static analyzer nor the Git analyzer executes target-repository code or changes its worktree.
+
 ## Swagger / OpenAPI
 
 The backend embeds Swagger UI 5.35.0 locally. After starting the server, open this address in a browser:
@@ -84,7 +142,7 @@ Swagger UI, its JavaScript/CSS assets, and the OpenAPI definition are all served
 curl http://127.0.0.1:8080/api/v1/openapi.yaml
 ```
 
-The UI documents the health, static-analysis, failure-record, and OpenAPI endpoints. The **Try it out** button calls the same local Go service.
+The UI documents the health, static-analysis, Git-history, risk-analysis, failure-record, and OpenAPI endpoints. The **Try it out** button calls the same local Go service.
 
 ## Test
 

@@ -2,6 +2,7 @@
 package api
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"github.com/Erfangh-80/code-analysis/backend/internal/application"
 	"github.com/Erfangh-80/code-analysis/backend/internal/domain"
 	"github.com/Erfangh-80/code-analysis/backend/internal/githistory"
+	"github.com/Erfangh-80/code-analysis/backend/internal/scoring"
 	"github.com/Erfangh-80/code-analysis/backend/internal/storage/failedfiles"
 )
 
@@ -52,6 +54,7 @@ type handler struct {
 	version        string
 	staticAnalysis *application.StaticAnalysisService
 	gitHistory     *githistory.Analyzer
+	riskEngine     *scoring.Engine
 }
 
 // NewHandler returns the local v1 API handler. The static-analysis API reads
@@ -62,6 +65,7 @@ func NewHandler(version string) http.Handler {
 		version:        version,
 		staticAnalysis: application.NewStaticAnalysisService(static.NewAnalyzer(), failures),
 		gitHistory:     githistory.NewAnalyzer(),
+		riskEngine:     scoring.NewEngine(),
 	}
 }
 
@@ -77,6 +81,8 @@ func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 		handler.handleStaticAnalysisFailures(response, request)
 	case "/api/v1/git-analysis":
 		handler.handleGitAnalysis(response, request)
+	case "/api/v1/risk-analysis":
+		handler.handleRiskAnalysis(response, request)
 	default:
 		if request.URL.Path == "/swagger" || strings.HasPrefix(request.URL.Path, "/swagger/") {
 			handler.handleSwaggerUI(response, request)
@@ -148,6 +154,28 @@ func (handler *handler) handleGitAnalysis(response http.ResponseWriter, request 
 	writeJSON(response, http.StatusOK, report)
 }
 
+func (handler *handler) handleRiskAnalysis(response http.ResponseWriter, request *http.Request) {
+	if !requireMethod(response, request, http.MethodPost) {
+		return
+	}
+
+	payload, err := decodeRiskAnalysisRequest(request)
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "Provide one or more file metric records and an optional valid scoring profile.")
+		return
+	}
+	report, err := handler.riskEngine.Analyze(payload)
+	if err != nil {
+		if errors.Is(err, scoring.ErrInvalidInput) || errors.Is(err, scoring.ErrInvalidProfile) || errors.Is(err, scoring.ErrInvalidHeatmap) {
+			writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "The risk metrics, scoring profile, or heatmap axes are invalid.")
+			return
+		}
+		writeError(response, http.StatusInternalServerError, "RISK_ENGINE_ERROR", "The risk score could not be calculated.")
+		return
+	}
+	writeJSON(response, http.StatusOK, report)
+}
+
 func (handler *handler) handleStaticAnalysisFailures(response http.ResponseWriter, request *http.Request) {
 	if !requireMethod(response, request, http.MethodGet) {
 		return
@@ -196,6 +224,57 @@ func decodeGitAnalysisRequest(request *http.Request) (domain.GitAnalysisRequest,
 		return domain.GitAnalysisRequest{}, io.ErrUnexpectedEOF
 	}
 	return payload, nil
+}
+
+func decodeRiskAnalysisRequest(request *http.Request) (domain.RiskAnalysisRequest, error) {
+	body, err := io.ReadAll(io.LimitReader(request.Body, 1<<20))
+	if err != nil {
+		return domain.RiskAnalysisRequest{}, err
+	}
+
+	var payload domain.RiskAnalysisRequest
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return domain.RiskAnalysisRequest{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return domain.RiskAnalysisRequest{}, io.ErrUnexpectedEOF
+	}
+	if len(payload.Files) == 0 {
+		return domain.RiskAnalysisRequest{}, io.ErrUnexpectedEOF
+	}
+	if err := requireAllRiskMetrics(body); err != nil {
+		return domain.RiskAnalysisRequest{}, err
+	}
+	return payload, nil
+}
+
+func requireAllRiskMetrics(body []byte) error {
+	var envelope struct {
+		Files []struct {
+			Metrics map[string]json.RawMessage `json:"metrics"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return err
+	}
+
+	requiredMetrics := []string{
+		"linesOfCode",
+		"maxFunctionLength",
+		"maxClassLength",
+		"gitChurn",
+		"changeFrequency",
+	}
+	for _, file := range envelope.Files {
+		for _, metric := range requiredMetrics {
+			if _, exists := file.Metrics[metric]; !exists {
+				return io.ErrUnexpectedEOF
+			}
+		}
+	}
+	return nil
 }
 
 func writeError(response http.ResponseWriter, status int, code, message string) {
