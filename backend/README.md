@@ -128,6 +128,31 @@ Each returned contribution includes the raw value, normalization cap, normalized
 - A path with no record in the selected Git history receives zero churn and change frequency. Inspect the Git-history scope and diagnostics before interpreting that result.
 - All metrics remain static/read-only: neither the static analyzer nor the Git analyzer executes target-repository code or changes its worktree.
 
+## Persisted local analyses and reports
+
+`POST /api/v1/analyses` starts a durable asynchronous analysis for one accessible absolute local `projectPath`. Git is optional: static analysis and availability-aware static-only risk scoring still complete for a non-Git project. Poll `GET /api/v1/analyses/{analysisId}` for lifecycle, independent stage statuses, progress, and safe diagnostics; `GET /api/v1/analyses` lists saved runs; and `POST /api/v1/analyses/{analysisId}/cancel` requests cooperative cancellation.
+
+After a completed run, the report and its projection/export APIs read the immutable SQLite report rather than rerunning analysis:
+
+```text
+GET /api/v1/analyses/{analysisId}/summary
+GET /api/v1/analyses/{analysisId}/hotspots
+GET /api/v1/analyses/{analysisId}/files
+GET /api/v1/analyses/{analysisId}/files/detail?path=project/relative.go
+GET /api/v1/analyses/{analysisId}/modules
+GET /api/v1/analyses/{analysisId}/heatmap
+GET /api/v1/analyses/{analysisId}/report
+GET /api/v1/analyses/{analysisId}/export?format=json|csv
+```
+
+File and hotspot lists support bounded pagination, project-relative path/module filters, and deterministic sorting. Results and exports never expose absolute local paths. CSV output prefixes formula-leading path values before writing them to protect spreadsheet users. The full route/query/error contract is in [`../docs/api-contract.md`](../docs/api-contract.md).
+
+The API is same-origin by default. To allow a local browser UI on a separate exact origin, opt in at startup; wildcards and path-bearing origins are rejected:
+
+```bash
+go run ./cmd/server -cors-allowed-origins=http://127.0.0.1:5173
+```
+
 ## Swagger / OpenAPI
 
 The backend embeds Swagger UI 5.35.0 locally. After starting the server, open this address in a browser:
@@ -142,7 +167,7 @@ Swagger UI, its JavaScript/CSS assets, and the OpenAPI definition are all served
 curl http://127.0.0.1:8080/api/v1/openapi.yaml
 ```
 
-The UI documents the health, static-analysis, Git-history, risk-analysis, failure-record, and OpenAPI endpoints. The **Try it out** button calls the same local Go service.
+The UI documents health, direct analysis, persisted lifecycle, completed report views, JSON/CSV exports, and OpenAPI endpoints. The **Try it out** button calls the same local Go service.
 
 ## Test
 
@@ -150,6 +175,6 @@ The UI documents the health, static-analysis, Git-history, risk-analysis, failur
 go test ./...
 ```
 
-The tests use real Go, JavaScript, and Python source fixtures, parser-error fixtures, temporary local files, and HTTP handlers. They never execute fixture source.
+The tests use real Go, JavaScript, and Python source fixtures, parser-error fixtures, temporary local files, direct handlers, and `httptest` HTTP servers. They never execute fixture source.
 
 Use `go run ./cmd/server -addr 127.0.0.1:8081` to select another explicit local address.

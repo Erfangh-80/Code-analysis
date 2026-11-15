@@ -57,21 +57,32 @@ type handler struct {
 	gitHistory     *githistory.Analyzer
 	riskEngine     *scoring.Engine
 	analyses       *application.Orchestrator
+	allowedOrigins map[string]struct{}
 }
 
 // NewHandler returns the local v1 API handler. The static-analysis API reads
 // only requested local files and never executes repository source.
 func NewHandler(version string) http.Handler {
-	return newHandler(version, nil)
+	return newHandler(version, nil, map[string]struct{}{})
 }
 
 // NewHandlerWithAnalysisService composes the local HTTP API with the durable
 // asynchronous analysis orchestration service.
 func NewHandlerWithAnalysisService(version string, analyses *application.Orchestrator) http.Handler {
-	return newHandler(version, analyses)
+	return newHandler(version, analyses, map[string]struct{}{})
 }
 
-func newHandler(version string, analyses *application.Orchestrator) http.Handler {
+// NewHandlerWithAnalysisServiceAndCORS composes the local API with an explicit
+// exact-origin CORS allowlist. An empty allowlist keeps the API same-origin.
+func NewHandlerWithAnalysisServiceAndCORS(version string, analyses *application.Orchestrator, origins []string) (http.Handler, error) {
+	allowedOrigins, err := allowedOriginSet(origins)
+	if err != nil {
+		return nil, err
+	}
+	return newHandler(version, analyses, allowedOrigins), nil
+}
+
+func newHandler(version string, analyses *application.Orchestrator, allowedOrigins map[string]struct{}) http.Handler {
 	failures := failedfiles.NewRegistry()
 	return &handler{
 		version:        version,
@@ -79,10 +90,15 @@ func newHandler(version string, analyses *application.Orchestrator) http.Handler
 		gitHistory:     githistory.NewAnalyzer(),
 		riskEngine:     scoring.NewEngine(),
 		analyses:       analyses,
+		allowedOrigins: allowedOrigins,
 	}
 }
 
 func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	setSecurityHeaders(response)
+	if handler.handleCORS(response, request) {
+		return
+	}
 	if request.URL.Path == "/api/v1/analyses" || strings.HasPrefix(request.URL.Path, "/api/v1/analyses/") {
 		handler.handleAnalyses(response, request)
 		return
@@ -213,13 +229,17 @@ func (handler *handler) handleAnalyses(response http.ResponseWriter, request *ht
 	}
 
 	parts := strings.Split(strings.TrimPrefix(request.URL.Path, "/api/v1/analyses/"), "/")
-	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" || len(parts) > 2 {
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" || len(parts) > 3 {
 		writeError(response, http.StatusNotFound, "NOT_FOUND", "The requested API route does not exist.")
 		return
 	}
 	id := domain.AnalysisID(parts[0])
 	if len(parts) == 1 {
 		if !requireMethod(response, request, http.MethodGet) {
+			return
+		}
+		if err := requireOnlyQueryParameters(request, nil); err != nil {
+			writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "This analysis status endpoint does not accept query parameters.")
 			return
 		}
 		run, err := handler.analyses.Get(request.Context(), id)
@@ -231,27 +251,32 @@ func (handler *handler) handleAnalyses(response http.ResponseWriter, request *ht
 		return
 	}
 
+	if len(parts) == 3 {
+		if parts[1] == "files" && parts[2] == "detail" {
+			handler.handleAnalysisFile(response, request, id)
+			return
+		}
+		writeError(response, http.StatusNotFound, "NOT_FOUND", "The requested API route does not exist.")
+		return
+	}
+
 	switch parts[1] {
 	case "cancel":
-		if !requireMethod(response, request, http.MethodPost) {
-			return
-		}
-		run, err := handler.analyses.Cancel(request.Context(), id)
-		if err != nil {
-			handleAnalysisError(response, err)
-			return
-		}
-		writeJSON(response, http.StatusAccepted, map[string]domain.AnalysisRun{"analysis": run})
+		handler.handleCancelAnalysis(response, request, id)
 	case "report":
-		if !requireMethod(response, request, http.MethodGet) {
-			return
-		}
-		report, err := handler.analyses.Report(request.Context(), id)
-		if err != nil {
-			handleAnalysisError(response, err)
-			return
-		}
-		writeJSON(response, http.StatusOK, report)
+		handler.handleAnalysisReport(response, request, id)
+	case "summary":
+		handler.handleAnalysisSummary(response, request, id)
+	case "hotspots":
+		handler.handleAnalysisHotspots(response, request, id)
+	case "files":
+		handler.handleAnalysisFiles(response, request, id)
+	case "modules":
+		handler.handleAnalysisModules(response, request, id)
+	case "heatmap":
+		handler.handleAnalysisHeatmap(response, request, id)
+	case "export":
+		handler.handleAnalysisExport(response, request, id)
 	default:
 		writeError(response, http.StatusNotFound, "NOT_FOUND", "The requested API route does not exist.")
 	}
@@ -291,6 +316,10 @@ func handleAnalysisError(response http.ResponseWriter, err error) {
 		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "The requested local analysis history range is invalid.")
 	case errors.Is(err, application.ErrAnalysisNotFound):
 		writeError(response, http.StatusNotFound, "ANALYSIS_NOT_FOUND", "The requested local analysis does not exist.")
+	case errors.Is(err, application.ErrAnalysisFileNotFound):
+		writeError(response, http.StatusNotFound, "ANALYSIS_FILE_NOT_FOUND", "The requested project-relative file is not present in this analysis.")
+	case errors.Is(err, application.ErrResultUnavailable):
+		writeError(response, http.StatusConflict, "RESULT_UNAVAILABLE", "This completed analysis does not contain the requested result artifact.")
 	case errors.Is(err, application.ErrAnalysisAlreadyRunning):
 		writeError(response, http.StatusConflict, "ANALYSIS_ALREADY_RUNNING", "An analysis is already active for this local project.")
 	case errors.Is(err, application.ErrInvalidRunState):
@@ -335,8 +364,17 @@ func decodeAnalysisRequest(request *http.Request) (domain.AnalysisRequest, error
 }
 
 func decodeAnalysisListQuery(request *http.Request) (domain.AnalysisListQuery, error) {
+	allowed := map[string]struct{}{"status": {}, "page": {}, "pageSize": {}}
+	if err := requireOnlyQueryParameters(request, allowed); err != nil {
+		return domain.AnalysisListQuery{}, err
+	}
+
 	query := domain.AnalysisListQuery{Page: 1, PageSize: 50}
-	if value := request.URL.Query().Get("status"); value != "" {
+	if _, exists := request.URL.Query()["status"]; exists {
+		value, err := singleQueryValue(request, "status", true)
+		if err != nil || value == "" {
+			return domain.AnalysisListQuery{}, io.ErrUnexpectedEOF
+		}
 		status := domain.AnalysisRunStatus(value)
 		switch status {
 		case domain.AnalysisStatusQueued, domain.AnalysisStatusRunning, domain.AnalysisStatusCompleted, domain.AnalysisStatusFailed, domain.AnalysisStatusCancelled:
@@ -345,14 +383,21 @@ func decodeAnalysisListQuery(request *http.Request) (domain.AnalysisListQuery, e
 			return domain.AnalysisListQuery{}, io.ErrUnexpectedEOF
 		}
 	}
-	var err error
-	if value := request.URL.Query().Get("page"); value != "" {
+	if _, exists := request.URL.Query()["page"]; exists {
+		value, err := singleQueryValue(request, "page", true)
+		if err != nil {
+			return domain.AnalysisListQuery{}, err
+		}
 		query.Page, err = strconv.Atoi(value)
 		if err != nil || query.Page < 1 {
 			return domain.AnalysisListQuery{}, io.ErrUnexpectedEOF
 		}
 	}
-	if value := request.URL.Query().Get("pageSize"); value != "" {
+	if _, exists := request.URL.Query()["pageSize"]; exists {
+		value, err := singleQueryValue(request, "pageSize", true)
+		if err != nil {
+			return domain.AnalysisListQuery{}, err
+		}
 		query.PageSize, err = strconv.Atoi(value)
 		if err != nil || query.PageSize < 1 || query.PageSize > 200 {
 			return domain.AnalysisListQuery{}, io.ErrUnexpectedEOF
