@@ -52,6 +52,24 @@ Parser failures are stored as safe local metadata—never source content—and c
 curl http://127.0.0.1:8080/api/v1/static-analysis/failures
 ```
 
+## Implemented Git-history analysis API
+
+`POST /api/v1/git-analysis` reads the full reachable history of an existing local Git worktree by default. It does not execute repository code or modify the repository. Optional inclusive RFC 3339 UTC `from` and `to` bounds limit the history window.
+
+```bash
+curl --request POST http://127.0.0.1:8080/api/v1/git-analysis \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "repositoryPath": "/absolute/path/to/local/repository",
+    "history": {
+      "from": "2024-01-01T00:00:00Z",
+      "to": "2024-12-31T23:59:59Z"
+    }
+  }'
+```
+
+The result reports per-file Git churn, change frequency, distinct author count, first/last change time, rename lineage, final deletion state, and monthly change concentration/dispersion. Empty histories and shallow repositories return explicit diagnostics instead of fabricated metrics.
+
 ## Swagger / OpenAPI
 
 The backend embeds Swagger UI 5.35.0 locally. After starting the server, open this address in a browser:

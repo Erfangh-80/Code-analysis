@@ -92,6 +92,9 @@ func TestOpenAPISpecificationIsServedLocally(t *testing.T) {
 	if !bytes.Contains(response.Body.Bytes(), []byte("openapi: 3.1.0")) {
 		t.Error("OpenAPI specification does not contain an OpenAPI version")
 	}
+	if !bytes.Contains(response.Body.Bytes(), []byte("/git-analysis:")) {
+		t.Error("OpenAPI specification does not document the Git-analysis endpoint")
+	}
 }
 
 func writeAPIFixture(t *testing.T, path, content string) {
