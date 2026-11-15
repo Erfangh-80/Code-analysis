@@ -161,6 +161,128 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /analyses:
+    post:
+      summary: Start a local asynchronous project analysis
+      operationId: startAnalysis
+      description: |
+        Accepts only an absolute projectPath visible to this local backend. A Git
+        worktree is optional: static analysis still runs when Git is unavailable.
+        The target project is never executed or modified.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalysisRequest'
+      responses:
+        '202':
+          description: Analysis was queued locally
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisEnvelope'
+        '400':
+          description: Invalid or inaccessible local project path, history, or profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: An analysis is already active for this local project or repository
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      summary: List locally persisted analyses
+      operationId: listAnalyses
+      parameters:
+        - $ref: '#/components/parameters/AnalysisStatusFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Persisted local analysis lifecycle records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisPage'
+        '400':
+          description: Invalid status or pagination query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}:
+    get:
+      summary: Get analysis status, stages, progress, and safe diagnostics
+      operationId: getAnalysis
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Analysis lifecycle snapshot; absolute local paths are never returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisEnvelope'
+        '404':
+          description: Unknown analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}/cancel:
+    post:
+      summary: Cooperatively cancel an active local analysis
+      operationId: cancelAnalysis
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '202':
+          description: Cancellation was requested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisEnvelope'
+        '404':
+          description: Unknown analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis is already terminal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}/report:
+    get:
+      summary: Get an immutable completed report restored from local storage
+      operationId: getAnalysisReport
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Completed analysis report persisted in local SQLite
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisReport'
+        '404':
+          description: Unknown analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis has not completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /openapi.yaml:
     get:
       summary: Download the local Swagger/OpenAPI definition
@@ -179,7 +301,242 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 components:
+  parameters:
+    AnalysisId:
+      name: analysisId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    AnalysisStatusFilter:
+      name: status
+      in: query
+      schema:
+        type: string
+        enum: [queued, running, completed, failed, cancelled]
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
   schemas:
+    AnalysisRequest:
+      type: object
+      additionalProperties: false
+      required: [projectPath]
+      properties:
+        projectPath:
+          type: string
+          minLength: 1
+          description: Absolute local project directory visible to this backend. It is not a Git URL and is never echoed in result payloads.
+          example: /workspace/project/backend
+        history:
+          $ref: '#/components/schemas/GitHistoryRange'
+        profile:
+          $ref: '#/components/schemas/RiskProfile'
+    AnalysisEnvelope:
+      type: object
+      required: [analysis]
+      properties:
+        analysis:
+          $ref: '#/components/schemas/AnalysisRun'
+    AnalysisPage:
+      type: object
+      required: [items, page, pageSize, totalItems]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisRun'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        totalItems:
+          type: integer
+          minimum: 0
+    AnalysisRun:
+      type: object
+      required: [id, status, createdAt, history, stages, progress, diagnostics]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled]
+        currentStage:
+          type: [string, 'null']
+          enum: [validation, discovery, analysis, risk_scoring, finalizing, null]
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+        history:
+          $ref: '#/components/schemas/GitHistoryRange'
+        stages:
+          type: array
+          items:
+            $ref: '#/components/schemas/StageSnapshot'
+        progress:
+          $ref: '#/components/schemas/AnalysisProgress'
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisDiagnostic'
+        summary:
+          $ref: '#/components/schemas/AnalysisSummary'
+    StageSnapshot:
+      type: object
+      required: [stage, status, progress]
+      properties:
+        stage:
+          type: string
+          enum: [validation, discovery, static_analysis, git_analysis, risk_scoring]
+        status:
+          type: string
+          enum: [pending, running, completed, unavailable, failed, cancelled, skipped]
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+        progress:
+          $ref: '#/components/schemas/StageProgress'
+    StageProgress:
+      type: object
+      required: [total, completed]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        completed:
+          type: integer
+          minimum: 0
+    AnalysisProgress:
+      type: object
+      required: [filesDiscovered, filesEligible, filesAnalyzed, filesWithErrors, commitsTotal, commitsScanned, percent]
+      properties:
+        filesDiscovered:
+          type: integer
+          minimum: 0
+        filesEligible:
+          type: integer
+          minimum: 0
+        filesAnalyzed:
+          type: integer
+          minimum: 0
+        filesWithErrors:
+          type: integer
+          minimum: 0
+        commitsTotal:
+          type: integer
+          minimum: 0
+        commitsScanned:
+          type: integer
+          minimum: 0
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+    AnalysisDiagnostic:
+      type: object
+      required: [stage, code, severity, message, recordedAt]
+      properties:
+        stage:
+          type: string
+          enum: [validation, discovery, static_analysis, git_analysis, risk_scoring]
+        path:
+          type: string
+          description: Optional project-relative path. Absolute host paths are never returned.
+        code:
+          type: string
+        severity:
+          type: string
+          enum: [warning, error]
+        message:
+          type: string
+        recordedAt:
+          type: string
+          format: date-time
+    AnalysisSummary:
+      type: object
+      required: [filesDiscovered, filesAnalyzed, filesWithErrors, gitStatus, riskStatus, scoredFiles, unscoredFiles]
+      properties:
+        filesDiscovered:
+          type: integer
+          minimum: 0
+        filesAnalyzed:
+          type: integer
+          minimum: 0
+        filesWithErrors:
+          type: integer
+          minimum: 0
+        gitStatus:
+          type: string
+          enum: [pending, running, completed, unavailable, failed, cancelled, skipped]
+        riskStatus:
+          type: string
+          enum: [pending, running, completed, unavailable, failed, cancelled, skipped]
+        scoredFiles:
+          type: integer
+          minimum: 0
+        unscoredFiles:
+          type: integer
+          minimum: 0
+    AnalysisReport:
+      type: object
+      required: [analysis, artifacts]
+      properties:
+        analysis:
+          $ref: '#/components/schemas/AnalysisRun'
+        artifacts:
+          $ref: '#/components/schemas/AnalysisArtifacts'
+    AnalysisArtifacts:
+      type: object
+      properties:
+        static:
+          $ref: '#/components/schemas/BatchAnalysis'
+        git:
+          $ref: '#/components/schemas/GitAnalysisReport'
+        risk:
+          $ref: '#/components/schemas/RiskAnalysisReport'
+        riskCoverage:
+          $ref: '#/components/schemas/RiskCoverage'
+    RiskCoverage:
+      type: object
+      required: [availableMetrics, unavailableMetrics, requestedProfile, effectiveProfile]
+      properties:
+        availableMetrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskMetric'
+        unavailableMetrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskMetric'
+        requestedProfile:
+          $ref: '#/components/schemas/RiskProfile'
+        effectiveProfile:
+          $ref: '#/components/schemas/RiskProfile'
     HealthResponse:
       type: object
       required: [status, version]
@@ -434,6 +791,11 @@ components:
           $ref: '#/components/schemas/RiskProfile'
         heatmap:
           $ref: '#/components/schemas/HeatmapConfiguration'
+        availableMetrics:
+          type: array
+          description: Optional availability set. Omit it only when all five metric fields are present. When supplied, each file must include the fields named by this set; omitted metrics are excluded rather than treated as zero.
+          items:
+            $ref: '#/components/schemas/RiskMetric'
     HotspotInput:
       type: object
       additionalProperties: false
@@ -449,7 +811,7 @@ components:
     HotspotMetrics:
       type: object
       additionalProperties: false
-      required: [linesOfCode, maxFunctionLength, maxClassLength, gitChurn, changeFrequency]
+      description: All five fields are required when availableMetrics is omitted. When availableMetrics is supplied, require precisely the fields it identifies; unavailable fields are excluded from scoring.
       properties:
         linesOfCode:
           type: integer
@@ -533,10 +895,21 @@ components:
       enum: [low, medium, high]
     RiskAnalysisReport:
       type: object
-      required: [profile, formula, normalization, limitations, files, modules, heatmap]
+      required: [profile, requestedProfile, availableMetrics, unavailableMetrics, formula, normalization, limitations, files, modules, heatmap]
       properties:
         profile:
+          description: Effective profile after unavailable metric weights are renormalized.
           $ref: '#/components/schemas/RiskProfile'
+        requestedProfile:
+          $ref: '#/components/schemas/RiskProfile'
+        availableMetrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskMetric'
+        unavailableMetrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskMetric'
         formula:
           type: string
           description: Exact scoring formula applied by the backend.

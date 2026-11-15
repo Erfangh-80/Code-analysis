@@ -123,18 +123,22 @@ type HeatmapData struct {
 
 // RiskAnalysisRequest is the deterministic input for the risk engine.
 type RiskAnalysisRequest struct {
-	Files   []HotspotInput        `json:"files"`
-	Profile *RiskProfile          `json:"profile,omitempty"`
-	Heatmap *HeatmapConfiguration `json:"heatmap,omitempty"`
+	Files            []HotspotInput        `json:"files"`
+	Profile          *RiskProfile          `json:"profile,omitempty"`
+	Heatmap          *HeatmapConfiguration `json:"heatmap,omitempty"`
+	AvailableMetrics []RiskMetric          `json:"availableMetrics,omitempty"`
 }
 
 // RiskAnalysisReport holds the model explanation, ranked hotspots, module aggregates, and heatmap data.
 type RiskAnalysisReport struct {
-	Profile       RiskProfile     `json:"profile"`
-	Formula       string          `json:"formula"`
-	Normalization string          `json:"normalization"`
-	Limitations   []string        `json:"limitations"`
-	Files         []Hotspot       `json:"files"`
-	Modules       []ModuleHotspot `json:"modules"`
-	Heatmap       HeatmapData     `json:"heatmap"`
+	Profile            RiskProfile     `json:"profile"`
+	RequestedProfile   RiskProfile     `json:"requestedProfile"`
+	AvailableMetrics   []RiskMetric    `json:"availableMetrics"`
+	UnavailableMetrics []RiskMetric    `json:"unavailableMetrics"`
+	Formula            string          `json:"formula"`
+	Normalization      string          `json:"normalization"`
+	Limitations        []string        `json:"limitations"`
+	Files              []Hotspot       `json:"files"`
+	Modules            []ModuleHotspot `json:"modules"`
+	Heatmap            HeatmapData     `json:"heatmap"`
 }

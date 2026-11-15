@@ -20,6 +20,8 @@ var (
 	ErrInvalidInput = errors.New("invalid risk input")
 	// ErrInvalidHeatmap indicates invalid or identical heatmap axes.
 	ErrInvalidHeatmap = errors.New("invalid heatmap configuration")
+	// ErrNoAvailableMetrics indicates that no valid, positively weighted metric remains.
+	ErrNoAvailableMetrics = errors.New("no available risk metrics")
 )
 
 var supportedMetrics = []domain.RiskMetric{
@@ -37,7 +39,7 @@ var modelLimitations = []string{
 	"This score prioritizes review and refactoring work; it does not predict defects, incidents, or security vulnerabilities.",
 	"Scores are relative to the requested file population, so scores from different runs are not directly comparable.",
 	"The v1 model uses only lines of code, maximum function length, maximum class length, Git churn, and change frequency.",
-	"A file without a selected-history Git record has zero churn and change frequency; inspect Git-analysis diagnostics and history scope before interpreting that result.",
+	"A file without a selected-history Git record has zero churn and change frequency only when Git metrics are available; unavailable Git analysis is excluded from the effective profile.",
 }
 
 // Engine calculates hotspot scores without filesystem, Git, HTTP, or frontend dependencies.
@@ -72,11 +74,19 @@ func DefaultProfile() domain.RiskProfile {
 // Analyze normalizes signals across the supplied file population, scores each
 // file, ranks hotspots, aggregates module scores, and prepares heatmap cells.
 func (engine *Engine) Analyze(request domain.RiskAnalysisRequest) (domain.RiskAnalysisReport, error) {
-	profile := DefaultProfile()
+	requestedProfile := DefaultProfile()
 	if request.Profile != nil {
-		profile = cloneProfile(*request.Profile)
+		requestedProfile = cloneProfile(*request.Profile)
 	}
-	if err := validateProfile(profile); err != nil {
+	if err := validateProfile(requestedProfile); err != nil {
+		return domain.RiskAnalysisReport{}, err
+	}
+	availableMetrics, err := resolveAvailableMetrics(request.AvailableMetrics)
+	if err != nil {
+		return domain.RiskAnalysisReport{}, err
+	}
+	profile, err := effectiveProfile(requestedProfile, availableMetrics)
+	if err != nil {
 		return domain.RiskAnalysisReport{}, err
 	}
 	if err := validateInputs(request.Files); err != nil {
@@ -84,11 +94,11 @@ func (engine *Engine) Analyze(request domain.RiskAnalysisRequest) (domain.RiskAn
 	}
 	inputs := canonicalizeInputs(request.Files)
 
-	heatmap, err := validateHeatmap(request.Heatmap)
+	heatmap, err := validateHeatmap(request.Heatmap, availableMetrics)
 	if err != nil {
 		return domain.RiskAnalysisReport{}, err
 	}
-	normalization := normalize(inputs)
+	normalization := normalize(inputs, availableMetrics)
 
 	hotspots := make([]domain.Hotspot, 0, len(inputs))
 	for _, input := range inputs {
@@ -96,10 +106,10 @@ func (engine *Engine) Analyze(request domain.RiskAnalysisRequest) (domain.RiskAn
 			Path:          input.Path,
 			Module:        modulePath(input.Path),
 			Metrics:       input.Metrics,
-			Contributions: make([]domain.RiskContribution, 0, len(supportedMetrics)),
+			Contributions: make([]domain.RiskContribution, 0, len(availableMetrics)),
 		}
 		weightedTotal := 0.0
-		for _, metric := range supportedMetrics {
+		for _, metric := range availableMetrics {
 			value := normalization.values[input.Path][metric]
 			weight := profile.Weights[metric]
 			weighted := value * weight
@@ -132,13 +142,16 @@ func (engine *Engine) Analyze(request domain.RiskAnalysisRequest) (domain.RiskAn
 	}
 
 	return domain.RiskAnalysisReport{
-		Profile:       profile,
-		Formula:       scoreFormula,
-		Normalization: normalizationDescription,
-		Limitations:   append([]string(nil), modelLimitations...),
-		Files:         hotspots,
-		Modules:       aggregateModules(hotspots, profile.Bands),
-		Heatmap:       prepareHeatmap(hotspots, heatmap),
+		Profile:            profile,
+		RequestedProfile:   requestedProfile,
+		AvailableMetrics:   append([]domain.RiskMetric(nil), availableMetrics...),
+		UnavailableMetrics: unavailableMetrics(availableMetrics),
+		Formula:            scoreFormula,
+		Normalization:      normalizationDescription,
+		Limitations:        append([]string(nil), modelLimitations...),
+		Files:              hotspots,
+		Modules:            aggregateModules(hotspots, profile.Bands),
+		Heatmap:            prepareHeatmap(hotspots, heatmap),
 	}, nil
 }
 
@@ -149,6 +162,68 @@ func cloneProfile(profile domain.RiskProfile) domain.RiskProfile {
 	}
 	profile.Weights = weights
 	return profile
+}
+
+func resolveAvailableMetrics(metrics []domain.RiskMetric) ([]domain.RiskMetric, error) {
+	if metrics == nil {
+		return append([]domain.RiskMetric(nil), supportedMetrics...), nil
+	}
+	if len(metrics) == 0 {
+		return nil, ErrNoAvailableMetrics
+	}
+	seen := make(map[domain.RiskMetric]struct{}, len(metrics))
+	result := make([]domain.RiskMetric, 0, len(metrics))
+	for _, metric := range supportedMetrics {
+		for _, requested := range metrics {
+			if requested != metric {
+				continue
+			}
+			if _, exists := seen[metric]; exists {
+				return nil, fmt.Errorf("%w: duplicate metric %q", ErrInvalidInput, metric)
+			}
+			seen[metric] = struct{}{}
+			result = append(result, metric)
+		}
+	}
+	if len(result) != len(metrics) {
+		return nil, fmt.Errorf("%w: available metrics must be supported", ErrInvalidInput)
+	}
+	return result, nil
+}
+
+func effectiveProfile(requested domain.RiskProfile, available []domain.RiskMetric) (domain.RiskProfile, error) {
+	effective := cloneProfile(requested)
+	effective.Weights = make(map[domain.RiskMetric]float64, len(available))
+	total := 0.0
+	for _, metric := range available {
+		total += requested.Weights[metric]
+	}
+	if total <= 0 {
+		return domain.RiskProfile{}, fmt.Errorf("%w: no available metric has a positive weight", ErrNoAvailableMetrics)
+	}
+	for _, metric := range available {
+		effective.Weights[metric] = requested.Weights[metric] / total
+	}
+	return effective, nil
+}
+
+func unavailableMetrics(available []domain.RiskMetric) []domain.RiskMetric {
+	availableSet := make(map[domain.RiskMetric]struct{}, len(available))
+	for _, metric := range available {
+		availableSet[metric] = struct{}{}
+	}
+	result := make([]domain.RiskMetric, 0, len(supportedMetrics)-len(available))
+	for _, metric := range supportedMetrics {
+		if _, exists := availableSet[metric]; !exists {
+			result = append(result, metric)
+		}
+	}
+	return result
+}
+
+// ValidateProfile checks a versioned risk profile before an asynchronous run is queued.
+func ValidateProfile(profile domain.RiskProfile) error {
+	return validateProfile(profile)
 }
 
 func validateProfile(profile domain.RiskProfile) error {
@@ -212,25 +287,40 @@ func modulePath(filePath string) string {
 	return module
 }
 
-func validateHeatmap(configuration *domain.HeatmapConfiguration) (domain.HeatmapConfiguration, error) {
-	if configuration == nil {
-		return domain.HeatmapConfiguration{
-			XMetric: domain.RiskMetricGitChurn,
-			YMetric: domain.RiskMetricLinesOfCode,
-		}, nil
+func validateHeatmap(configuration *domain.HeatmapConfiguration, available []domain.RiskMetric) (domain.HeatmapConfiguration, error) {
+	availableSet := make(map[domain.RiskMetric]struct{}, len(available))
+	for _, metric := range available {
+		availableSet[metric] = struct{}{}
 	}
-	if !isSupportedMetric(configuration.XMetric) || !isSupportedMetric(configuration.YMetric) || configuration.XMetric == configuration.YMetric {
-		return domain.HeatmapConfiguration{}, fmt.Errorf("%w: axes must be distinct supported metrics", ErrInvalidHeatmap)
+	if configuration == nil {
+		if _, hasGitChurn := availableSet[domain.RiskMetricGitChurn]; hasGitChurn {
+			if _, hasLines := availableSet[domain.RiskMetricLinesOfCode]; hasLines {
+				return domain.HeatmapConfiguration{XMetric: domain.RiskMetricGitChurn, YMetric: domain.RiskMetricLinesOfCode}, nil
+			}
+		}
+		if len(available) < 2 {
+			return domain.HeatmapConfiguration{}, fmt.Errorf("%w: two available metrics are required", ErrInvalidHeatmap)
+		}
+		return domain.HeatmapConfiguration{XMetric: available[0], YMetric: available[1]}, nil
+	}
+	if configuration.XMetric == configuration.YMetric {
+		return domain.HeatmapConfiguration{}, fmt.Errorf("%w: axes must be distinct available metrics", ErrInvalidHeatmap)
+	}
+	if _, exists := availableSet[configuration.XMetric]; !exists {
+		return domain.HeatmapConfiguration{}, fmt.Errorf("%w: x axis is unavailable", ErrInvalidHeatmap)
+	}
+	if _, exists := availableSet[configuration.YMetric]; !exists {
+		return domain.HeatmapConfiguration{}, fmt.Errorf("%w: y axis is unavailable", ErrInvalidHeatmap)
 	}
 	return *configuration, nil
 }
 
-func normalize(inputs []domain.HotspotInput) normalizationResult {
+func normalize(inputs []domain.HotspotInput, metrics []domain.RiskMetric) normalizationResult {
 	result := normalizationResult{
 		values: make(map[string]map[domain.RiskMetric]float64, len(inputs)),
-		caps:   make(map[domain.RiskMetric]int, len(supportedMetrics)),
+		caps:   make(map[domain.RiskMetric]int, len(metrics)),
 	}
-	for _, metric := range supportedMetrics {
+	for _, metric := range metrics {
 		values := make([]int, 0, len(inputs))
 		for _, input := range inputs {
 			values = append(values, input.Metrics.Value(metric))

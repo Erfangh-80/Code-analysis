@@ -99,6 +99,30 @@ func TestRiskAnalysisEndpointRejectsMissingMetrics(t *testing.T) {
 	assertErrorCode(t, response, "VALIDATION_ERROR")
 }
 
+func TestRiskAnalysisEndpointExcludesUnavailableMetrics(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`{
+		"files":[
+			{"path":"small.go","metrics":{"linesOfCode":10,"maxFunctionLength":2,"maxClassLength":1}},
+			{"path":"large.go","metrics":{"linesOfCode":20,"maxFunctionLength":4,"maxClassLength":2}}
+		],
+		"availableMetrics":["lines_of_code","max_function_length","max_class_length"]
+	}`)
+	response := httptest.NewRecorder()
+	NewHandler("test-version").ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/risk-analysis", bytes.NewReader(payload)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var report domain.RiskAnalysisReport
+	if err := json.NewDecoder(response.Body).Decode(&report); err != nil {
+		t.Fatalf("decode static-only risk response: %v", err)
+	}
+	if len(report.UnavailableMetrics) != 2 || len(report.Files) != 2 || len(report.Files[0].Contributions) != 3 {
+		t.Errorf("static-only report = %+v", report)
+	}
+}
+
 func TestRiskAnalysisEndpointRejectsInvalidWeights(t *testing.T) {
 	t.Parallel()
 
