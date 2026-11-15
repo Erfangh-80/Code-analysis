@@ -4,6 +4,7 @@ package api
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/Erfangh-80/code-analysis/backend/internal/analyzer/static"
 	"github.com/Erfangh-80/code-analysis/backend/internal/application"
 	"github.com/Erfangh-80/code-analysis/backend/internal/domain"
+	"github.com/Erfangh-80/code-analysis/backend/internal/githistory"
 	"github.com/Erfangh-80/code-analysis/backend/internal/storage/failedfiles"
 )
 
@@ -49,6 +51,7 @@ type staticAnalysisFailureResponse struct {
 type handler struct {
 	version        string
 	staticAnalysis *application.StaticAnalysisService
+	gitHistory     *githistory.Analyzer
 }
 
 // NewHandler returns the local v1 API handler. The static-analysis API reads
@@ -58,6 +61,7 @@ func NewHandler(version string) http.Handler {
 	return &handler{
 		version:        version,
 		staticAnalysis: application.NewStaticAnalysisService(static.NewAnalyzer(), failures),
+		gitHistory:     githistory.NewAnalyzer(),
 	}
 }
 
@@ -71,6 +75,8 @@ func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 		handler.handleStaticAnalysis(response, request)
 	case "/api/v1/static-analysis/failures":
 		handler.handleStaticAnalysisFailures(response, request)
+	case "/api/v1/git-analysis":
+		handler.handleGitAnalysis(response, request)
 	default:
 		if request.URL.Path == "/swagger" || strings.HasPrefix(request.URL.Path, "/swagger/") {
 			handler.handleSwaggerUI(response, request)
@@ -120,6 +126,28 @@ func (handler *handler) handleStaticAnalysis(response http.ResponseWriter, reque
 	writeJSON(response, http.StatusOK, result)
 }
 
+func (handler *handler) handleGitAnalysis(response http.ResponseWriter, request *http.Request) {
+	if !requireMethod(response, request, http.MethodPost) {
+		return
+	}
+
+	payload, err := decodeGitAnalysisRequest(request)
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "Provide an absolute local repositoryPath and a valid optional history range.")
+		return
+	}
+	report, err := handler.gitHistory.Analyze(request.Context(), payload)
+	if err != nil {
+		if errors.Is(err, githistory.ErrInvalidRepository) || errors.Is(err, githistory.ErrInvalidHistoryRange) {
+			writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "The local Git repository path or history range is invalid.")
+			return
+		}
+		writeError(response, http.StatusInternalServerError, "GIT_HISTORY_ERROR", "The local Git history could not be analyzed completely.")
+		return
+	}
+	writeJSON(response, http.StatusOK, report)
+}
+
 func (handler *handler) handleStaticAnalysisFailures(response http.ResponseWriter, request *http.Request) {
 	if !requireMethod(response, request, http.MethodGet) {
 		return
@@ -150,6 +178,22 @@ func decodeStaticAnalysisRequest(request *http.Request) (staticAnalysisRequest, 
 	}
 	if payload.RootPath == "" || len(payload.Files) == 0 {
 		return staticAnalysisRequest{}, io.ErrUnexpectedEOF
+	}
+	return payload, nil
+}
+
+func decodeGitAnalysisRequest(request *http.Request) (domain.GitAnalysisRequest, error) {
+	var payload domain.GitAnalysisRequest
+	decoder := json.NewDecoder(io.LimitReader(request.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return domain.GitAnalysisRequest{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return domain.GitAnalysisRequest{}, io.ErrUnexpectedEOF
+	}
+	if payload.RepositoryPath == "" {
+		return domain.GitAnalysisRequest{}, io.ErrUnexpectedEOF
 	}
 	return payload, nil
 }

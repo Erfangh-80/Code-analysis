@@ -88,6 +88,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /git-analysis:
+    post:
+      summary: Analyze local Git history
+      operationId: analyzeGitHistory
+      description: |
+        Reads commit metadata and diffs from an existing local Git worktree.
+        Source code is never executed and the repository is never changed.
+        Omit history bounds to analyze all commits reachable from HEAD.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitAnalysisRequest'
+      responses:
+        '200':
+          description: Per-file Git churn, change frequency, author, time-range, rename, deletion, concentration, and dispersion facts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitAnalysisReport'
+        '400':
+          description: Invalid local repository path or history range
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Local Git history could not be read completely
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '405':
+          description: Method not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /openapi.yaml:
     get:
       summary: Download the local Swagger/OpenAPI definition
@@ -264,6 +303,88 @@ components:
         recordedAt:
           type: string
           format: date-time
+    GitAnalysisRequest:
+      type: object
+      additionalProperties: false
+      required: [repositoryPath]
+      properties:
+        repositoryPath:
+          type: string
+          description: Absolute path to an existing local Git worktree visible to the backend process.
+          example: /workspace/repository
+        history:
+          $ref: '#/components/schemas/GitHistoryRange'
+    GitHistoryRange:
+      type: object
+      additionalProperties: false
+      properties:
+        from:
+          type: [string, 'null']
+          format: date-time
+          description: Inclusive UTC lower bound for commit timestamps. Omit for all history.
+        to:
+          type: [string, 'null']
+          format: date-time
+          description: Inclusive UTC upper bound for commit timestamps. Omit for all history.
+    GitAnalysisReport:
+      type: object
+      required: [commitCount, history, files, diagnostics]
+      properties:
+        commitCount:
+          type: integer
+          minimum: 0
+        history:
+          $ref: '#/components/schemas/GitHistoryRange'
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/GitFileMetrics'
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Diagnostic'
+    GitFileMetrics:
+      type: object
+      required: [path, previousPaths, deleted, gitChurn, changeFrequency, authorCount, firstChangedAt, lastChangedAt, changeConcentration, changeDispersion]
+      properties:
+        path:
+          type: string
+          description: Current or last known repository-relative path.
+        previousPaths:
+          type: array
+          description: Earlier paths preserved across detected renames.
+          items:
+            type: string
+        deleted:
+          type: boolean
+          description: True when the final selected-history change deleted the file.
+        gitChurn:
+          type: integer
+          minimum: 0
+          description: Sum of added and deleted text lines in the selected history.
+        changeFrequency:
+          type: integer
+          minimum: 0
+          description: Number of commits that changed this file identity.
+        authorCount:
+          type: integer
+          minimum: 0
+        firstChangedAt:
+          type: [string, 'null']
+          format: date-time
+        lastChangedAt:
+          type: [string, 'null']
+          format: date-time
+        changeConcentration:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Monthly change Herfindahl concentration; 1 means all changes occurred in one month.
+        changeDispersion:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: One minus changeConcentration; higher values mean changes were distributed across months.
     ErrorResponse:
       type: object
       required: [error]

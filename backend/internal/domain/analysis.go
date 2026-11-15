@@ -39,11 +39,14 @@ const (
 type DiagnosticCode string
 
 const (
-	DiagnosticCodeParseError    DiagnosticCode = "PARSE_ERROR"
-	DiagnosticCodeFallbackUsed  DiagnosticCode = "FALLBACK_USED"
-	DiagnosticCodeUnsupported   DiagnosticCode = "UNSUPPORTED_LANGUAGE"
-	DiagnosticCodeReadError     DiagnosticCode = "READ_ERROR"
-	DiagnosticCodeInvalidRequest DiagnosticCode = "INVALID_REQUEST"
+	DiagnosticCodeParseError          DiagnosticCode = "PARSE_ERROR"
+	DiagnosticCodeFallbackUsed        DiagnosticCode = "FALLBACK_USED"
+	DiagnosticCodeUnsupported         DiagnosticCode = "UNSUPPORTED_LANGUAGE"
+	DiagnosticCodeReadError           DiagnosticCode = "READ_ERROR"
+	DiagnosticCodeInvalidRequest      DiagnosticCode = "INVALID_REQUEST"
+	DiagnosticCodeInsufficientHistory DiagnosticCode = "INSUFFICIENT_HISTORY"
+	DiagnosticCodeShallowHistory      DiagnosticCode = "SHALLOW_HISTORY"
+	DiagnosticCodeGitHistoryError     DiagnosticCode = "GIT_HISTORY_ERROR"
 )
 
 // Diagnostic describes an honest limitation or failure encountered while reading a file.
