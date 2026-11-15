@@ -10,6 +10,8 @@ info:
     and Git analysis reads history from paths on the same machine as this Go
     service. Risk analysis scores only their supplied analytical facts. The API
     never accepts repository source content and never executes files it reads.
+    Browser access is same-origin by default; the local server can opt into an
+    exact trusted-origin allowlist with its cors-allowed-origins flag.
 servers:
   - url: http://127.0.0.1:8080/api/v1
     description: Default local-only server
@@ -227,6 +229,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisEnvelope'
+        '400':
+          description: This endpoint accepts no query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Unknown analysis
           content:
@@ -246,6 +254,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisEnvelope'
+        '400':
+          description: This endpoint accepts no query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Unknown analysis
           content:
@@ -254,6 +268,239 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: Analysis is already terminal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}/summary:
+    get:
+      summary: Get a completed analysis result summary
+      operationId: getAnalysisSummary
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Completed summary, risk-band counts, and metric availability
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResultSummary'
+        '404':
+          description: Unknown analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis is not completed or its summary is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}/hotspots:
+    get:
+      summary: List filtered and sorted risk hotspots from a completed analysis
+      operationId: listAnalysisHotspots
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+        - $ref: '#/components/parameters/ResultPage'
+        - $ref: '#/components/parameters/ResultPageSize'
+        - $ref: '#/components/parameters/ResultQuery'
+        - $ref: '#/components/parameters/ResultModule'
+        - $ref: '#/components/parameters/RiskLevelFilter'
+        - $ref: '#/components/parameters/HotspotSort'
+        - $ref: '#/components/parameters/SortDirection'
+      responses:
+        '200':
+          description: Immutable scored-file view with pagination metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisHotspotPage'
+        '400':
+          description: Invalid filter, sort, or pagination parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis is not completed or did not produce risk hotspots
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}/files:
+    get:
+      summary: List filtered and sorted static-file results from a completed analysis
+      operationId: listAnalysisFiles
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+        - $ref: '#/components/parameters/ResultPage'
+        - $ref: '#/components/parameters/ResultPageSize'
+        - $ref: '#/components/parameters/ResultQuery'
+        - $ref: '#/components/parameters/ResultModule'
+        - $ref: '#/components/parameters/RiskLevelFilter'
+        - $ref: '#/components/parameters/AnalysisFileStatusFilter'
+        - $ref: '#/components/parameters/FileSort'
+        - $ref: '#/components/parameters/SortDirection'
+      responses:
+        '200':
+          description: Immutable static-file view joined with optional Git and risk records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisFilePage'
+        '400':
+          description: Invalid filter, sort, or pagination parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis is not completed or has no static artifact
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}/files/detail:
+    get:
+      summary: Get one completed analysis file by project-relative path
+      operationId: getAnalysisFile
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+        - $ref: '#/components/parameters/ProjectRelativePath'
+      responses:
+        '200':
+          description: Complete static result with optional Git and risk records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisFileResult'
+        '400':
+          description: Missing, unsafe, repeated, or unknown query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown analysis or file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis is not completed or has no static artifact
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}/modules:
+    get:
+      summary: Get static and optional risk module aggregates for a completed analysis
+      operationId: getAnalysisModules
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Module aggregates from the immutable report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisModules'
+        '400':
+          description: This endpoint accepts no query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis is not completed or has no static artifact
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}/heatmap:
+    get:
+      summary: Get saved heatmap coordinates for a completed analysis
+      operationId: getAnalysisHeatmap
+      description: The heatmap axes and scores are saved with the completed risk model and cannot be recalculated through query parameters.
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+      responses:
+        '200':
+          description: Backend-prepared immutable heatmap cells
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeatmapData'
+        '400':
+          description: This endpoint accepts no query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis is not completed or did not produce risk data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analyses/{analysisId}/export:
+    get:
+      summary: Export one immutable completed report as JSON or CSV
+      operationId: exportAnalysis
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+        - $ref: '#/components/parameters/ExportFormat'
+      responses:
+        '200':
+          description: Downloaded immutable report; format controls the content type and file extension.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisReport'
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Missing, repeated, invalid, or unknown export query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Unknown analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Analysis has not completed successfully
           content:
             application/json:
               schema:
@@ -271,6 +518,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisReport'
+        '400':
+          description: This endpoint accepts no query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Unknown analysis
           content:
@@ -330,7 +583,185 @@ components:
         minimum: 1
         maximum: 200
         default: 50
+    ResultPage:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    ResultPageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    ResultQuery:
+      name: q
+      in: query
+      schema:
+        type: string
+        maxLength: 512
+      description: Case-insensitive substring matched against a project-relative file path.
+    ResultModule:
+      name: module
+      in: query
+      schema:
+        type: string
+        maxLength: 512
+      description: Project-relative module path. It includes descendants; use . for the project root.
+    RiskLevelFilter:
+      name: riskLevel
+      in: query
+      explode: true
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/RiskLevel'
+      description: Repeat to include multiple risk levels.
+    AnalysisFileStatusFilter:
+      name: analysisStatus
+      in: query
+      explode: true
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/FileAnalysisStatus'
+      description: Repeat to include multiple static file statuses.
+    HotspotSort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        enum: [score, path, module, linesOfCode, maxFunctionLength, maxClassLength, gitChurn, changeFrequency]
+        default: score
+    FileSort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        enum: [score, path, module, language, status, linesOfCode, maxFunctionLength, maxClassLength, gitChurn, changeFrequency]
+        default: path
+    SortDirection:
+      name: direction
+      in: query
+      schema:
+        type: string
+        enum: [asc, desc]
+      description: Defaults to desc for score and asc for every other sort.
+    ProjectRelativePath:
+      name: path
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: Exact project-relative file path. Absolute, root-escaping, repeated, and backslash paths are rejected.
+    ExportFormat:
+      name: format
+      in: query
+      required: true
+      schema:
+        type: string
+        enum: [json, csv]
   schemas:
+    FileAnalysisStatus:
+      type: string
+      enum: [analyzed, empty, no_executable_code, fallback, parse_error, unsupported, read_error]
+    RiskLevelCounts:
+      type: object
+      required: [low, medium, high]
+      properties:
+        low:
+          type: integer
+          minimum: 0
+        medium:
+          type: integer
+          minimum: 0
+        high:
+          type: integer
+          minimum: 0
+    AnalysisResultSummary:
+      type: object
+      required: [analysis, summary, riskLevels, moduleCount, hasGitArtifact]
+      properties:
+        analysis:
+          $ref: '#/components/schemas/AnalysisRun'
+        summary:
+          $ref: '#/components/schemas/AnalysisSummary'
+        riskLevels:
+          $ref: '#/components/schemas/RiskLevelCounts'
+        moduleCount:
+          type: integer
+          minimum: 0
+        riskCoverage:
+          $ref: '#/components/schemas/RiskCoverage'
+        hasGitArtifact:
+          type: boolean
+    AnalysisHotspotPage:
+      type: object
+      required: [items, page, pageSize, totalItems]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Hotspot'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        totalItems:
+          type: integer
+          minimum: 0
+        riskCoverage:
+          $ref: '#/components/schemas/RiskCoverage'
+    AnalysisFileResult:
+      type: object
+      required: [analysis]
+      properties:
+        analysis:
+          $ref: '#/components/schemas/FileAnalysis'
+        git:
+          $ref: '#/components/schemas/GitFileMetrics'
+        risk:
+          $ref: '#/components/schemas/Hotspot'
+    AnalysisFilePage:
+      type: object
+      required: [items, page, pageSize, totalItems]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisFileResult'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        totalItems:
+          type: integer
+          minimum: 0
+        riskCoverage:
+          $ref: '#/components/schemas/RiskCoverage'
+    AnalysisModules:
+      type: object
+      required: [static, risk]
+      properties:
+        static:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModuleAnalysis'
+        risk:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModuleHotspot'
+        riskCoverage:
+          $ref: '#/components/schemas/RiskCoverage'
     AnalysisRequest:
       type: object
       additionalProperties: false
@@ -586,8 +1017,7 @@ components:
           type: string
           enum: [go, javascript, python, unknown]
         status:
-          type: string
-          enum: [analyzed, empty, no_executable_code, fallback, parse_error, unsupported, read_error]
+          $ref: '#/components/schemas/FileAnalysisStatus'
         usedFallback:
           type: boolean
         metrics:

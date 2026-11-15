@@ -1,6 +1,6 @@
 # Local API Contract — v1
 
-**Status:** implemented backend surface as of BE-65–BE-76. The embedded OpenAPI document at [`backend/internal/api/openapi.yaml`](../backend/internal/api/openapi.yaml) is the machine-readable source of truth.
+**Status:** implemented backend surface through BE-92. The embedded OpenAPI document at [`backend/internal/api/openapi.yaml`](../backend/internal/api/openapi.yaml) is the machine-readable source of truth.
 
 **Base URL:** `http://127.0.0.1:<configured-port>/api/v1`
 
@@ -115,11 +115,40 @@ Static and Git work run independently in parallel when a Git worktree is availab
 
 Requests cooperative cancellation and returns `202`. Active work checks cancellation at discovery, file, and Git command boundaries. A cancelled run retains safe stage/progress/diagnostic information but is never returned as a completed report. A terminal or unknown run returns `409` or `404` respectively.
 
-### `GET /analyses/{analysisId}/report`
+### Completed result views
 
-Returns a `200` immutable completed report only after successful finalization. Before completion it returns `409`; an unknown ID returns `404`.
+Every endpoint in this section reads the immutable stored report and returns `409` for a non-completed analysis and `404` for an unknown analysis. No endpoint recalculates static, Git, score, module, or heatmap values.
 
-The report joins the safe lifecycle snapshot with persisted static, optional Git, and optional risk artifacts. It survives backend restarts through local SQLite storage.
+| Endpoint | Result |
+| --- | --- |
+| `GET /analyses/{analysisId}/summary` | Completed summary, risk-level counts, module count, Git-artifact flag, and availability/effective-profile metadata. |
+| `GET /analyses/{analysisId}/hotspots` | Paginated scored hotspots. |
+| `GET /analyses/{analysisId}/files` | Paginated static-file records joined with optional Git and risk records. |
+| `GET /analyses/{analysisId}/files/detail?path=project/relative.go` | One exact project-relative file record. The path must be non-empty, slash-normalized, non-absolute, and non-escaping. |
+| `GET /analyses/{analysisId}/modules` | Static module aggregates and optional risk-ranked module aggregates. |
+| `GET /analyses/{analysisId}/heatmap` | Saved backend-prepared heatmap axes and cells. It does not accept alternate axes because that would imply a recalculation. |
+| `GET /analyses/{analysisId}/report` | Complete raw immutable report, including all persisted artifacts. |
+
+`/hotspots` and `/files` accept one-based `page` and `pageSize` (`1..200`), optional case-insensitive path query `q`, optional project-relative `module` prefix, repeated `riskLevel` values, a supported `sort`, and `direction=asc|desc`. `/files` also accepts repeated static `analysisStatus` values. The server rejects unknown, repeated scalar, malformed, out-of-range, or endpoint-incompatible query parameters with `400 VALIDATION_ERROR`. Sorting has deterministic path ties.
+
+### `GET /analyses/{analysisId}/export?format=json|csv`
+
+Exports a completed report with an attachment disposition:
+
+- `format=json` returns the same immutable report JSON as the report endpoint.
+- `format=csv` returns one safe row per discovered static file with actual v1 columns: path, language, static status, risk score/level when available, static metrics, and Git churn/frequency when available.
+
+CSV text cells that begin with `=`, `+`, `-`, or `@` are prefixed to prevent spreadsheet formula interpretation. Export never contains an absolute host path or source contents.
+
+## Browser access and security headers
+
+The default local API is same-origin. Cross-origin browser access is disabled unless the server is launched with `-cors-allowed-origins` containing comma-separated, exact `http` or `https` origins, for example:
+
+```text
+-cors-allowed-origins=http://127.0.0.1:5173
+```
+
+Wildcards, credentials, paths, queries, and fragments are rejected. Allowed origins receive only `GET`, `POST`, and `OPTIONS` CORS methods with `Content-Type`; an untrusted browser origin receives `403 CORS_ORIGIN_DENIED`. Responses also include `nosniff`, frame/referrer/cross-origin-resource protections, a restrictive frame/base/object CSP, and `Cache-Control: no-store`.
 
 ## Scope, discovery, and Git availability
 
@@ -135,4 +164,4 @@ SQLite is the primary `RunStore`. It persists lifecycle state, stage snapshots, 
 
 ## Deferred API surface
 
-Deletion, file-list/detail views, exports, named profile management, and frontend dashboard routes are not implemented in this increment and must not be inferred from this contract. The OpenAPI document lists only the implemented HTTP endpoints above.
+Deletion, named profile management, custom recomputation of saved heatmap axes, and frontend dashboard routes are not implemented in this increment and must not be inferred from this contract. The OpenAPI document lists only the implemented HTTP endpoints above.

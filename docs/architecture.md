@@ -1,6 +1,6 @@
 # Code Risk Analyzer — Architecture
 
-**Status:** implemented backend baseline through orchestration and local analysis-process management (BE-39–BE-76).
+**Status:** implemented backend baseline through local reporting, exports, OpenAPI, CORS, and API testing (BE-39–BE-92).
 
 **Scope:** local/on-premises analysis of Go, JavaScript, and Python projects. The frontend remains outside this increment.
 
@@ -119,24 +119,37 @@ Risk is a review/refactoring priority, not a defect, incident, security, coverag
 
 The `analysis_runs(scope_key)` partial unique index applies only to `queued`/`running` rows. A report insertion and run transition to `completed` are one database transaction, so a completed row cannot survive without its report. During store startup, interrupted `queued`/`running` rows are marked `failed` with `BACKEND_RESTARTED`; jobs are not silently resumed.
 
-## HTTP API
+## HTTP API and report projection
 
-`cmd/server` constructs SQLite, scanner, static analyzer, Git analyzer, risk engine, and `application.Orchestrator`, then passes the service to the HTTP handler. Existing synchronous static/Git/risk endpoints remain unchanged. Additive lifecycle routes are:
+`cmd/server` constructs SQLite, scanner, static analyzer, Git analyzer, risk engine, and `application.Orchestrator`, then passes the service to the HTTP handler. Existing synchronous static/Git/risk endpoints remain unchanged. Additive lifecycle and report routes are:
 
 ```text
 POST /api/v1/analyses
 GET  /api/v1/analyses
 GET  /api/v1/analyses/{analysisId}
 POST /api/v1/analyses/{analysisId}/cancel
+GET  /api/v1/analyses/{analysisId}/summary
+GET  /api/v1/analyses/{analysisId}/hotspots
+GET  /api/v1/analyses/{analysisId}/files
+GET  /api/v1/analyses/{analysisId}/files/detail?path=...
+GET  /api/v1/analyses/{analysisId}/modules
+GET  /api/v1/analyses/{analysisId}/heatmap
 GET  /api/v1/analyses/{analysisId}/report
+GET  /api/v1/analyses/{analysisId}/export?format=json|csv
 ```
+
+The application result-query layer is intentionally read-only: it gets one persisted completed report, builds a project-relative file join across static/Git/risk artifacts, filters/sorts/paginates a copy, and returns typed projection views. It never calls analyzers or rescoring logic. Missing optional artifacts stay absent rather than becoming zero facts. The full report and JSON export retain the immutable persisted document; CSV serializes the deterministic static-file list and neutralizes formula-leading path values.
+
+The handler validates route/query cardinality, bounds, enums, safe relative paths, and export format before calling the application layer. Query errors are `400 VALIDATION_ERROR`; views unavailable before successful report finalization are `409 RESULT_UNAVAILABLE`; a requested file not present in the stored report is `404 ANALYSIS_FILE_NOT_FOUND`.
+
+CORS defaults to same-origin. `-cors-allowed-origins` is parsed at startup into an exact `http`/`https` origin allowlist; wildcard and non-origin entries are rejected. Security middleware consistently emits conservative no-store, MIME, frame, referrer, cross-origin-resource, and CSP headers. CORS preflight and cross-origin access are limited to the configured exact browser origins.
 
 The detailed request/response contract is in [`api-contract.md`](api-contract.md), and the embedded OpenAPI 3.1 definition is linted as part of delivery.
 
 ## Verification strategy
 
-Focused tests cover scanner scope/ignore/binary behavior, availability-aware scoring, SQLite uniqueness/restart/report persistence, orchestration of non-Git/static-only/Git-subdirectory/cancellation/partial-Git cases, and lifecycle HTTP start/poll/report/error behavior. Standard Go formatting and `go test ./...` remain required release gates; the current Arena sandbox does not provide a Go executable, so those commands must run in a Go-enabled environment before a release is claimed.
+Focused tests cover scanner scope/ignore/binary behavior, availability-aware scoring, SQLite uniqueness/restart/report persistence, orchestration of non-Git/static-only/Git-subdirectory/cancellation/partial-Git cases, lifecycle HTTP start/poll/report/error behavior, real HTTP completed-view/export request flows, CORS policy/security headers, report-query pagination/filter/sort boundaries, unavailable-result states, and CSV-injection protection. Standard Go formatting and `go test ./...` remain required release gates; the current Arena sandbox does not provide a Go executable, so those commands must run in a Go-enabled environment before a release is claimed.
 
 ## Deferred capabilities
 
-Remote cloning, authentication, distributed execution, project code execution, TypeScript support, cyclomatic complexity, named profile management, deletion/export APIs, file-list/detail APIs, and the frontend dashboard are outside this implemented increment.
+Remote cloning, authentication, distributed execution, project code execution, TypeScript support, cyclomatic complexity, named profile management, deletion, custom re-aggregation of stored views, and the frontend dashboard are outside this implemented increment.

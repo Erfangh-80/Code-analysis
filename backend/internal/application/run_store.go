@@ -14,6 +14,10 @@ var (
 	ErrAnalysisAlreadyRunning = errors.New("analysis already running")
 	// ErrInvalidRunState indicates an operation incompatible with a terminal run.
 	ErrInvalidRunState = errors.New("invalid analysis run state")
+	// ErrAnalysisFileNotFound indicates a file path absent from a completed report.
+	ErrAnalysisFileNotFound = errors.New("analysis file not found")
+	// ErrResultUnavailable indicates a completed run did not produce the requested optional result artifact.
+	ErrResultUnavailable = errors.New("analysis result unavailable")
 )
 
 // RunStore persists local analysis lifecycle state and completed immutable reports.
