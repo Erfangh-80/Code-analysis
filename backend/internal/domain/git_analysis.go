@@ -13,6 +13,10 @@ type GitHistoryRange struct {
 type GitAnalysisRequest struct {
 	RepositoryPath string          `json:"repositoryPath"`
 	History        GitHistoryRange `json:"history"`
+	// ScopePath is an internal repository-relative path that limits history to
+	// a selected project directory. Public Git API callers omit it for a full
+	// worktree report.
+	ScopePath string `json:"-"`
 }
 
 // GitFileMetrics captures read-only history facts for a repository-relative file identity.

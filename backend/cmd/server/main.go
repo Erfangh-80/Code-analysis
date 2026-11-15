@@ -8,21 +8,54 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/Erfangh-80/code-analysis/backend/internal/analyzer/static"
 	"github.com/Erfangh-80/code-analysis/backend/internal/api"
+	"github.com/Erfangh-80/code-analysis/backend/internal/application"
+	"github.com/Erfangh-80/code-analysis/backend/internal/githistory"
+	"github.com/Erfangh-80/code-analysis/backend/internal/infrastructure/sqlite"
+	"github.com/Erfangh-80/code-analysis/backend/internal/repositoryscan"
+	"github.com/Erfangh-80/code-analysis/backend/internal/scoring"
+	"github.com/Erfangh-80/code-analysis/backend/internal/storage/failedfiles"
 )
 
 const version = "0.1.0"
 
+func defaultDatabasePath() string {
+	if dataDirectory, err := os.UserConfigDir(); err == nil && dataDirectory != "" {
+		return filepath.Join(dataDirectory, "code-risk-analyzer", "analyses.db")
+	}
+	return filepath.Join(".", "code-risk-analyzer", "analyses.db")
+}
+
 func main() {
 	address := flag.String("addr", "127.0.0.1:8080", "local HTTP listen address")
+	dataPath := flag.String("data", defaultDatabasePath(), "local SQLite analysis database path")
+	maxConcurrentRuns := flag.Int("max-concurrent-runs", 2, "maximum local project analyses running at once")
 	flag.Parse()
+
+	store, err := sqlite.Open(*dataPath)
+	if err != nil {
+		log.Fatalf("open local analysis database: %v", err)
+	}
+	defer store.Close()
+
+	failures := failedfiles.NewRegistry()
+	orchestrator := application.NewOrchestrator(
+		store,
+		repositoryscan.NewScanner(),
+		application.NewStaticAnalysisService(static.NewAnalyzer(), failures),
+		githistory.NewAnalyzer(),
+		scoring.NewEngine(),
+		*maxConcurrentRuns,
+	)
 
 	server := &http.Server{
 		Addr:              *address,
-		Handler:           api.NewHandler(version),
+		Handler:           api.NewHandlerWithAnalysisService(version, orchestrator),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

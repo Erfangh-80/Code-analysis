@@ -93,7 +93,7 @@ func (analyzer *Analyzer) Analyze(ctx context.Context, request domain.GitAnalysi
 		))
 	}
 
-	commits, err := analyzer.commits(ctx, repositoryRoot, request.History)
+	commits, err := analyzer.commits(ctx, repositoryRoot, request.History, request.ScopePath)
 	if err != nil {
 		return domain.GitAnalysisReport{}, err
 	}
@@ -111,7 +111,7 @@ func (analyzer *Analyzer) Analyze(ctx context.Context, request domain.GitAnalysi
 		if err := ctx.Err(); err != nil {
 			return domain.GitAnalysisReport{}, err
 		}
-		changes, err := analyzer.changesForCommit(ctx, repositoryRoot, commit.Hash)
+		changes, err := analyzer.changesForCommit(ctx, repositoryRoot, commit.Hash, request.ScopePath)
 		if err != nil {
 			return domain.GitAnalysisReport{}, err
 		}
@@ -170,7 +170,7 @@ func (analyzer *Analyzer) isShallowRepository(ctx context.Context, repositoryRoo
 	return strings.TrimSpace(string(output)) == "true", nil
 }
 
-func (analyzer *Analyzer) commits(ctx context.Context, repositoryRoot string, history domain.GitHistoryRange) ([]commit, error) {
+func (analyzer *Analyzer) commits(ctx context.Context, repositoryRoot string, history domain.GitHistoryRange, scopePath string) ([]commit, error) {
 	arguments := []string{"log", "--reverse", "--format=%x1e%H%x1f%an%x1f%ae%x1f%cI"}
 	if history.From != nil {
 		arguments = append(arguments, "--since="+history.From.UTC().Format(time.RFC3339))
@@ -179,6 +179,9 @@ func (analyzer *Analyzer) commits(ctx context.Context, repositoryRoot string, hi
 		arguments = append(arguments, "--until="+history.To.UTC().Format(time.RFC3339))
 	}
 	arguments = append(arguments, "HEAD")
+	if scopePath != "" {
+		arguments = append(arguments, "--", scopePath)
+	}
 
 	output, err := analyzer.git(ctx, repositoryRoot, arguments...)
 	if err != nil {
@@ -187,12 +190,20 @@ func (analyzer *Analyzer) commits(ctx context.Context, repositoryRoot string, hi
 	return parseCommits(output)
 }
 
-func (analyzer *Analyzer) changesForCommit(ctx context.Context, repositoryRoot, hash string) ([]fileChange, error) {
-	nameStatus, err := analyzer.git(ctx, repositoryRoot, "diff-tree", "--root", "--no-commit-id", "--name-status", "-z", "--find-renames", "-r", hash)
+func (analyzer *Analyzer) changesForCommit(ctx context.Context, repositoryRoot, hash, scopePath string) ([]fileChange, error) {
+	arguments := []string{"diff-tree", "--root", "--no-commit-id", "--name-status", "-z", "--find-renames", "-r", hash}
+	if scopePath != "" {
+		arguments = append(arguments, "--", scopePath)
+	}
+	nameStatus, err := analyzer.git(ctx, repositoryRoot, arguments...)
 	if err != nil {
 		return nil, err
 	}
-	numstat, err := analyzer.git(ctx, repositoryRoot, "diff-tree", "--root", "--no-commit-id", "--numstat", "-z", "--find-renames", "-r", hash)
+	numstatArguments := []string{"diff-tree", "--root", "--no-commit-id", "--numstat", "-z", "--find-renames", "-r", hash}
+	if scopePath != "" {
+		numstatArguments = append(numstatArguments, "--", scopePath)
+	}
+	numstat, err := analyzer.git(ctx, repositoryRoot, numstatArguments...)
 	if err != nil {
 		return nil, err
 	}
@@ -229,11 +240,11 @@ type fileStatus struct {
 }
 
 type numstat struct {
-	OldPath    string
-	NewPath    string
-	Additions  int
-	Deletions  int
-	HasBinary  bool
+	OldPath   string
+	NewPath   string
+	Additions int
+	Deletions int
+	HasBinary bool
 }
 
 type fileChange struct {

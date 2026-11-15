@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Erfangh-80/code-analysis/backend/internal/analyzer/static"
@@ -55,21 +56,38 @@ type handler struct {
 	staticAnalysis *application.StaticAnalysisService
 	gitHistory     *githistory.Analyzer
 	riskEngine     *scoring.Engine
+	analyses       *application.Orchestrator
 }
 
 // NewHandler returns the local v1 API handler. The static-analysis API reads
 // only requested local files and never executes repository source.
 func NewHandler(version string) http.Handler {
+	return newHandler(version, nil)
+}
+
+// NewHandlerWithAnalysisService composes the local HTTP API with the durable
+// asynchronous analysis orchestration service.
+func NewHandlerWithAnalysisService(version string, analyses *application.Orchestrator) http.Handler {
+	return newHandler(version, analyses)
+}
+
+func newHandler(version string, analyses *application.Orchestrator) http.Handler {
 	failures := failedfiles.NewRegistry()
 	return &handler{
 		version:        version,
 		staticAnalysis: application.NewStaticAnalysisService(static.NewAnalyzer(), failures),
 		gitHistory:     githistory.NewAnalyzer(),
 		riskEngine:     scoring.NewEngine(),
+		analyses:       analyses,
 	}
 }
 
 func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	if request.URL.Path == "/api/v1/analyses" || strings.HasPrefix(request.URL.Path, "/api/v1/analyses/") {
+		handler.handleAnalyses(response, request)
+		return
+	}
+
 	switch request.URL.Path {
 	case "/api/v1/health":
 		handler.handleHealth(response, request)
@@ -176,6 +194,112 @@ func (handler *handler) handleRiskAnalysis(response http.ResponseWriter, request
 	writeJSON(response, http.StatusOK, report)
 }
 
+func (handler *handler) handleAnalyses(response http.ResponseWriter, request *http.Request) {
+	if handler.analyses == nil {
+		writeError(response, http.StatusServiceUnavailable, "ANALYSIS_UNAVAILABLE", "Durable analysis orchestration is not configured for this handler.")
+		return
+	}
+	if request.URL.Path == "/api/v1/analyses" {
+		switch request.Method {
+		case http.MethodPost:
+			handler.handleStartAnalysis(response, request)
+		case http.MethodGet:
+			handler.handleListAnalyses(response, request)
+		default:
+			response.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
+			writeError(response, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "This HTTP method is not supported for the requested route.")
+		}
+		return
+	}
+
+	parts := strings.Split(strings.TrimPrefix(request.URL.Path, "/api/v1/analyses/"), "/")
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" || len(parts) > 2 {
+		writeError(response, http.StatusNotFound, "NOT_FOUND", "The requested API route does not exist.")
+		return
+	}
+	id := domain.AnalysisID(parts[0])
+	if len(parts) == 1 {
+		if !requireMethod(response, request, http.MethodGet) {
+			return
+		}
+		run, err := handler.analyses.Get(request.Context(), id)
+		if err != nil {
+			handleAnalysisError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, map[string]domain.AnalysisRun{"analysis": run})
+		return
+	}
+
+	switch parts[1] {
+	case "cancel":
+		if !requireMethod(response, request, http.MethodPost) {
+			return
+		}
+		run, err := handler.analyses.Cancel(request.Context(), id)
+		if err != nil {
+			handleAnalysisError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusAccepted, map[string]domain.AnalysisRun{"analysis": run})
+	case "report":
+		if !requireMethod(response, request, http.MethodGet) {
+			return
+		}
+		report, err := handler.analyses.Report(request.Context(), id)
+		if err != nil {
+			handleAnalysisError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, report)
+	default:
+		writeError(response, http.StatusNotFound, "NOT_FOUND", "The requested API route does not exist.")
+	}
+}
+
+func (handler *handler) handleStartAnalysis(response http.ResponseWriter, request *http.Request) {
+	payload, err := decodeAnalysisRequest(request)
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "Provide an absolute local projectPath and valid optional history/profile settings.")
+		return
+	}
+	run, err := handler.analyses.Start(request.Context(), payload)
+	if err != nil {
+		handleAnalysisError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusAccepted, map[string]domain.AnalysisRun{"analysis": run})
+}
+
+func (handler *handler) handleListAnalyses(response http.ResponseWriter, request *http.Request) {
+	query, err := decodeAnalysisListQuery(request)
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "The requested analysis list filters are invalid.")
+		return
+	}
+	page, err := handler.analyses.List(request.Context(), query)
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, "ANALYSIS_STORE_ERROR", "Local analysis records could not be listed.")
+		return
+	}
+	writeJSON(response, http.StatusOK, page)
+}
+
+func handleAnalysisError(response http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, githistory.ErrInvalidHistoryRange):
+		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "The requested local analysis history range is invalid.")
+	case errors.Is(err, application.ErrAnalysisNotFound):
+		writeError(response, http.StatusNotFound, "ANALYSIS_NOT_FOUND", "The requested local analysis does not exist.")
+	case errors.Is(err, application.ErrAnalysisAlreadyRunning):
+		writeError(response, http.StatusConflict, "ANALYSIS_ALREADY_RUNNING", "An analysis is already active for this local project.")
+	case errors.Is(err, application.ErrInvalidRunState):
+		writeError(response, http.StatusConflict, "INVALID_RUN_STATE", "This operation is not allowed for the analysis in its current state.")
+	default:
+		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "The local analysis request is invalid or inaccessible.")
+	}
+}
+
 func (handler *handler) handleStaticAnalysisFailures(response http.ResponseWriter, request *http.Request) {
 	if !requireMethod(response, request, http.MethodGet) {
 		return
@@ -192,6 +316,49 @@ func requireMethod(response http.ResponseWriter, request *http.Request, expected
 	response.Header().Set("Allow", expected)
 	writeError(response, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "This HTTP method is not supported for the requested route.")
 	return false
+}
+
+func decodeAnalysisRequest(request *http.Request) (domain.AnalysisRequest, error) {
+	var payload domain.AnalysisRequest
+	decoder := json.NewDecoder(io.LimitReader(request.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return domain.AnalysisRequest{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return domain.AnalysisRequest{}, io.ErrUnexpectedEOF
+	}
+	if strings.TrimSpace(payload.ProjectPath) == "" {
+		return domain.AnalysisRequest{}, io.ErrUnexpectedEOF
+	}
+	return payload, nil
+}
+
+func decodeAnalysisListQuery(request *http.Request) (domain.AnalysisListQuery, error) {
+	query := domain.AnalysisListQuery{Page: 1, PageSize: 50}
+	if value := request.URL.Query().Get("status"); value != "" {
+		status := domain.AnalysisRunStatus(value)
+		switch status {
+		case domain.AnalysisStatusQueued, domain.AnalysisStatusRunning, domain.AnalysisStatusCompleted, domain.AnalysisStatusFailed, domain.AnalysisStatusCancelled:
+			query.Status = &status
+		default:
+			return domain.AnalysisListQuery{}, io.ErrUnexpectedEOF
+		}
+	}
+	var err error
+	if value := request.URL.Query().Get("page"); value != "" {
+		query.Page, err = strconv.Atoi(value)
+		if err != nil || query.Page < 1 {
+			return domain.AnalysisListQuery{}, io.ErrUnexpectedEOF
+		}
+	}
+	if value := request.URL.Query().Get("pageSize"); value != "" {
+		query.PageSize, err = strconv.Atoi(value)
+		if err != nil || query.PageSize < 1 || query.PageSize > 200 {
+			return domain.AnalysisListQuery{}, io.ErrUnexpectedEOF
+		}
+	}
+	return query, nil
 }
 
 func decodeStaticAnalysisRequest(request *http.Request) (staticAnalysisRequest, error) {
@@ -244,13 +411,13 @@ func decodeRiskAnalysisRequest(request *http.Request) (domain.RiskAnalysisReques
 	if len(payload.Files) == 0 {
 		return domain.RiskAnalysisRequest{}, io.ErrUnexpectedEOF
 	}
-	if err := requireAllRiskMetrics(body); err != nil {
+	if err := requireRiskMetrics(body, payload.AvailableMetrics); err != nil {
 		return domain.RiskAnalysisRequest{}, err
 	}
 	return payload, nil
 }
 
-func requireAllRiskMetrics(body []byte) error {
+func requireRiskMetrics(body []byte, available []domain.RiskMetric) error {
 	var envelope struct {
 		Files []struct {
 			Metrics map[string]json.RawMessage `json:"metrics"`
@@ -266,6 +433,23 @@ func requireAllRiskMetrics(body []byte) error {
 		"maxClassLength",
 		"gitChurn",
 		"changeFrequency",
+	}
+	if available != nil {
+		metricFields := map[domain.RiskMetric]string{
+			domain.RiskMetricLinesOfCode:       "linesOfCode",
+			domain.RiskMetricMaxFunctionLength: "maxFunctionLength",
+			domain.RiskMetricMaxClassLength:    "maxClassLength",
+			domain.RiskMetricGitChurn:          "gitChurn",
+			domain.RiskMetricChangeFrequency:   "changeFrequency",
+		}
+		requiredMetrics = make([]string, 0, len(available))
+		for _, metric := range available {
+			field, exists := metricFields[metric]
+			if !exists {
+				return io.ErrUnexpectedEOF
+			}
+			requiredMetrics = append(requiredMetrics, field)
+		}
 	}
 	for _, file := range envelope.Files {
 		for _, metric := range requiredMetrics {

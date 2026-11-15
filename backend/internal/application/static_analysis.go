@@ -46,6 +46,17 @@ func NewStaticAnalysisService(analyzer *static.Analyzer, failures FailureRecorde
 // Analyze reads files under RootPath, calculates real static results, and aggregates directories.
 // It never executes target source or changes the target filesystem.
 func (service *StaticAnalysisService) Analyze(ctx context.Context, request StaticAnalysisRequest) (domain.BatchAnalysis, error) {
+	return service.analyze(ctx, request, nil)
+}
+
+// AnalyzeWithProgress behaves like Analyze and invokes onFile after every file
+// attempt. Callers can persist coarse lifecycle progress without inspecting or
+// retaining source content.
+func (service *StaticAnalysisService) AnalyzeWithProgress(ctx context.Context, request StaticAnalysisRequest, onFile func(completed, total int, analysis domain.FileAnalysis)) (domain.BatchAnalysis, error) {
+	return service.analyze(ctx, request, onFile)
+}
+
+func (service *StaticAnalysisService) analyze(ctx context.Context, request StaticAnalysisRequest, onFile func(completed, total int, analysis domain.FileAnalysis)) (domain.BatchAnalysis, error) {
 	root, err := validateRoot(request.RootPath)
 	if err != nil {
 		return domain.BatchAnalysis{}, err
@@ -78,6 +89,9 @@ func (service *StaticAnalysisService) Analyze(ctx context.Context, request Stati
 			}
 			result.Files = append(result.Files, analysis)
 			service.recordFailure(analysis)
+			if onFile != nil {
+				onFile(len(result.Files), len(request.Files), analysis)
+			}
 			continue
 		}
 
@@ -85,6 +99,9 @@ func (service *StaticAnalysisService) Analyze(ctx context.Context, request Stati
 		result.Files = append(result.Files, analysis)
 		if analysis.HasParserFailure() {
 			service.recordFailure(analysis)
+		}
+		if onFile != nil {
+			onFile(len(result.Files), len(request.Files), analysis)
 		}
 	}
 

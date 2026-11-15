@@ -87,6 +87,48 @@ func TestEngineCapsNearestRank95thPercentileNormalization(t *testing.T) {
 	}
 }
 
+func TestEngineRenormalizesOnlyAvailableStaticMetrics(t *testing.T) {
+	t.Parallel()
+
+	report, err := scoring.NewEngine().Analyze(domain.RiskAnalysisRequest{
+		Files: []domain.HotspotInput{
+			{Path: "small.go", Metrics: domain.HotspotMetrics{LinesOfCode: 10, MaxFunctionLength: 2, MaxClassLength: 1}},
+			{Path: "large.go", Metrics: domain.HotspotMetrics{LinesOfCode: 20, MaxFunctionLength: 4, MaxClassLength: 2}},
+		},
+		AvailableMetrics: []domain.RiskMetric{
+			domain.RiskMetricLinesOfCode,
+			domain.RiskMetricMaxFunctionLength,
+			domain.RiskMetricMaxClassLength,
+		},
+	})
+	if err != nil {
+		t.Fatalf("calculate static-only risk: %v", err)
+	}
+	if len(report.AvailableMetrics) != 3 || len(report.UnavailableMetrics) != 2 {
+		t.Errorf("metric coverage = available=%v unavailable=%v", report.AvailableMetrics, report.UnavailableMetrics)
+	}
+	if got := report.Profile.Weights[domain.RiskMetricLinesOfCode]; math.Abs(got-0.3) > 0.000001 {
+		t.Errorf("effective LOC weight = %v, want .3", got)
+	}
+	if got := report.Profile.Weights[domain.RiskMetricMaxFunctionLength]; math.Abs(got-0.5) > 0.000001 {
+		t.Errorf("effective max function weight = %v, want .5", got)
+	}
+	if len(report.Files[0].Contributions) != 3 {
+		t.Errorf("contributions = %+v, want only available metrics", report.Files[0].Contributions)
+	}
+	if report.Heatmap.XMetric == domain.RiskMetricGitChurn || report.Heatmap.YMetric == domain.RiskMetricGitChurn {
+		t.Errorf("static-only heatmap = %+v must not use unavailable Git churn", report.Heatmap)
+	}
+	_, err = scoring.NewEngine().Analyze(domain.RiskAnalysisRequest{
+		Files:            []domain.HotspotInput{{Path: "file.go", Metrics: domain.HotspotMetrics{LinesOfCode: 1, MaxFunctionLength: 1, MaxClassLength: 1}}},
+		AvailableMetrics: []domain.RiskMetric{domain.RiskMetricLinesOfCode, domain.RiskMetricMaxFunctionLength, domain.RiskMetricMaxClassLength},
+		Heatmap:          &domain.HeatmapConfiguration{XMetric: domain.RiskMetricGitChurn, YMetric: domain.RiskMetricLinesOfCode},
+	})
+	if !errors.Is(err, scoring.ErrInvalidHeatmap) {
+		t.Errorf("unavailable heatmap axis error = %v, want ErrInvalidHeatmap", err)
+	}
+}
+
 func TestEngineSupportsConfiguredWeightsAndRejectsInvalidProfiles(t *testing.T) {
 	t.Parallel()
 
