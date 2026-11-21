@@ -10,6 +10,7 @@
 - React Router برای routeهای داشبورد
 - TanStack Query برای درخواست‌ها و cache API
 - Zustand برای state رابط کاربری (مانند sidebar موبایل، حالت روشن/تاریک و ترجیحات نمایش)
+- Recharts برای نمودار توزیع ریسک و Heatmap تعاملی با محورهای ذخیره‌شدهٔ backend
 - ساختار Atomic Design:
   - `components/atoms` برای اجزای هویتی کوچک
   - `components/molecules` برای ترکیب‌های کوچک UI
@@ -35,7 +36,10 @@ Vite روی همهٔ interfaceها bind می‌شود. مسیرهای نسبی `
 | --- | --- |
 | `/` | نمای کلی و وضعیت اتصال سرویس محلی |
 | `/analyses` | فهرست تحلیل‌های ذخیره‌شده |
-| `/analyses/new` | ثبت یک تحلیل جدید با مسیر محلی پروژه |
+| `/analyses/new` | ثبت تحلیل با مسیر محلی، بازهٔ Git و وزن‌های Hotspot |
+| `/analyses/:analysisId` | پیشرفت زنده، Dashboard گزارش، Heatmap و خروجی JSON/CSV |
+| `/analyses/:analysisId/files` | جدول فایل‌ها با جست‌وجو، فیلتر، مرتب‌سازی و صفحه‌بندی |
+| `/analyses/:analysisId/files/detail?path=…` | جزئیات Static/Git/Risk و contributionهای فایل |
 | `/settings` | ترجیحات محلی رابط کاربری |
 
 تمام داده‌های تحلیل در UI از API واقعی خوانده می‌شوند؛ صفحه‌ها دادهٔ نمونه یا نتیجهٔ ساختگی نمایش نمی‌دهند.
