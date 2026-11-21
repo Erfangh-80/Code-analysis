@@ -164,6 +164,7 @@ export function AnalysisFilesPage() {
           {files && files.items.length > 0 && (
             <>
               <Table>
+                <caption className="sr-only">فهرست فایل‌های تحلیل‌شده با شاخص‌های ایستا، Git و ریسک</caption>
                 <TableHeader><TableRow><TableHead>فایل / مسیر</TableHead><TableHead>زبان</TableHead><TableHead className="hidden lg:table-cell">Cyclomatic</TableHead><TableHead>LOC / تابع</TableHead><TableHead className="hidden md:table-cell">Git</TableHead><TableHead>Hotspot</TableHead></TableRow></TableHeader>
                 <TableBody>{files.items.map((file) => (
                   <TableRow key={file.analysis.path}>

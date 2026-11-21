@@ -26,7 +26,10 @@ export function FileDetailPage() {
   if (file.isError || !file.data) return <ApiErrorState error={file.error} onRetry={() => file.refetch()} title="جزئیات فایل قابل دریافت نیست" />;
 
   const { analysis, git, risk } = file.data;
-  const contributions = risk?.contributions.slice().sort((left, right) => right.weighted - left.weighted) ?? [];
+  const previousPaths = git?.previousPaths ?? [];
+  const contributions = (risk?.contributions ?? []).slice().sort((left, right) => right.weighted - left.weighted);
+  const functions = analysis.functions ?? [];
+  const diagnostics = analysis.diagnostics ?? [];
 
   return (
     <div className="space-y-6">
@@ -49,7 +52,7 @@ export function FileDetailPage() {
         </Card>
       </section>
 
-      {git && <Card><CardHeader><div className="flex items-center gap-2"><CalendarRange className="size-5 text-primary" /><CardTitle>بازهٔ تغییرات فایل</CardTitle></div><CardDescription>API فعلی تاریخچهٔ commitهای تک‌فایل را برنمی‌گرداند؛ این بازه از معیارهای Git قابل‌دریافت نمایش داده می‌شود.</CardDescription></CardHeader><CardContent className="grid gap-3 sm:grid-cols-3"><MetricItem label="اولین تغییر" value={formatDateTime(git.firstChangedAt)} /><MetricItem label="آخرین تغییر" value={formatDateTime(git.lastChangedAt)} /><MetricItem label="مسیرهای پیشین" value={formatNumber(git.previousPaths.length)} detail={git.previousPaths.length ? git.previousPaths.join("، ") : "مسیر پیشینی ثبت نشده"} /></CardContent></Card>}
+      {git && <Card><CardHeader><div className="flex items-center gap-2"><CalendarRange className="size-5 text-primary" /><CardTitle>بازهٔ تغییرات فایل</CardTitle></div><CardDescription>API فعلی تاریخچهٔ commitهای تک‌فایل را برنمی‌گرداند؛ این بازه از معیارهای Git قابل‌دریافت نمایش داده می‌شود.</CardDescription></CardHeader><CardContent className="grid gap-3 sm:grid-cols-3"><MetricItem label="اولین تغییر" value={formatDateTime(git.firstChangedAt)} /><MetricItem label="آخرین تغییر" value={formatDateTime(git.lastChangedAt)} /><MetricItem label="مسیرهای پیشین" value={formatNumber(previousPaths.length)} detail={previousPaths.length ? previousPaths.join("، ") : "مسیر پیشینی ثبت نشده"} /></CardContent></Card>}
 
       {risk && <Card>
         <CardHeader><div className="flex items-center gap-2"><ShieldAlert className="size-5 text-destructive" /><CardTitle>چرا این فایل پرریسک است؟</CardTitle></div><CardDescription>سهم هر شاخص از مدل ذخیره‌شدهٔ backend؛ وزن‌های مؤثر را بررسی کنید.</CardDescription></CardHeader>
@@ -58,9 +61,9 @@ export function FileDetailPage() {
         </CardContent>
       </Card>}
 
-      {analysis.functions.length > 0 && <Card><CardHeader><CardTitle>توابع ثبت‌شده</CardTitle><CardDescription>بلندترین declarationهای استخراج‌شده از تحلیل ایستا.</CardDescription></CardHeader><CardContent><ul className="grid gap-2 sm:grid-cols-2">{analysis.functions.slice().sort((left, right) => right.length - left.length).slice(0, 12).map((declaration) => <li key={`${declaration.name}-${declaration.startLine}`} className="flex items-center justify-between rounded-lg border bg-muted/25 px-3 py-2 text-sm"><span className="truncate font-mono text-xs" dir="ltr">{declaration.name}</span><span className="shrink-0 text-xs text-muted-foreground">خط {formatNumber(declaration.startLine)} · {formatNumber(declaration.length)}</span></li>)}</ul></CardContent></Card>}
+      {functions.length > 0 && <Card><CardHeader><CardTitle>توابع ثبت‌شده</CardTitle><CardDescription>بلندترین declarationهای استخراج‌شده از تحلیل ایستا.</CardDescription></CardHeader><CardContent><ul className="grid gap-2 sm:grid-cols-2">{functions.slice().sort((left, right) => right.length - left.length).slice(0, 12).map((declaration) => <li key={`${declaration.name}-${declaration.startLine}`} className="flex items-center justify-between rounded-lg border bg-muted/25 px-3 py-2 text-sm"><span className="truncate font-mono text-xs" dir="ltr">{declaration.name}</span><span className="shrink-0 text-xs text-muted-foreground">خط {formatNumber(declaration.startLine)} · {formatNumber(declaration.length)}</span></li>)}</ul></CardContent></Card>}
 
-      {analysis.diagnostics.length > 0 && <Card className="border-warning/25"><CardHeader><CardTitle className="flex items-center gap-2"><UsersRound className="size-4 text-[color:var(--warning)]" />هشدارها و خطاهای فایل</CardTitle></CardHeader><CardContent><ul className="space-y-2 text-sm">{analysis.diagnostics.map((diagnostic) => <li key={`${diagnostic.code}-${diagnostic.message}`}><span className="font-mono text-xs">{diagnostic.code}</span> — {diagnostic.message}</li>)}</ul></CardContent></Card>}
+      {diagnostics.length > 0 && <Card className="border-warning/25"><CardHeader><CardTitle className="flex items-center gap-2"><UsersRound className="size-4 text-[color:var(--warning)]" />هشدارها و خطاهای فایل</CardTitle></CardHeader><CardContent><ul className="space-y-2 text-sm">{diagnostics.map((diagnostic) => <li key={`${diagnostic.code}-${diagnostic.message}`}><span className="font-mono text-xs">{diagnostic.code}</span> — {diagnostic.message}</li>)}</ul></CardContent></Card>}
     </div>
   );
 }

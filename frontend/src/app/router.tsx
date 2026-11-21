@@ -1,6 +1,7 @@
 import { FileQuestion } from "lucide-react";
 import { createBrowserRouter, Link } from "react-router-dom";
 
+import { RouteErrorPage } from "@/app/route-error-page";
 import { DashboardLayout } from "@/components/templates/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { AnalysisDetailPage } from "@/features/analyses/pages/analysis-detail-page";
@@ -8,6 +9,7 @@ import { AnalysisFilesPage } from "@/features/analyses/pages/analysis-files-page
 import { AnalysesPage } from "@/features/analyses/pages/analyses-page";
 import { FileDetailPage } from "@/features/analyses/pages/file-detail-page";
 import { NewAnalysisPage } from "@/features/analyses/pages/new-analysis-page";
+import { AnalysisReportPage } from "@/features/reports/pages/analysis-report-page";
 import { DashboardPage } from "@/features/dashboard/pages/dashboard-page";
 import { SettingsPage } from "@/features/settings/pages/settings-page";
 
@@ -27,6 +29,7 @@ function NotFoundPage() {
 export const router = createBrowserRouter([
   {
     element: <DashboardLayout />,
+    errorElement: <RouteErrorPage />,
     children: [
       {
         index: true,
@@ -50,6 +53,14 @@ export const router = createBrowserRouter([
         handle: {
           title: "شروع تحلیل",
           description: "یک پروژهٔ قابل‌دسترسی روی دستگاه محلی را انتخاب کنید.",
+        },
+      },
+      {
+        path: "analyses/:analysisId/report",
+        element: <AnalysisReportPage />,
+        handle: {
+          title: "گزارش و خروجی",
+          description: "پیش‌نمایش گزارش تکمیل‌شده و دریافت JSON یا CSV.",
         },
       },
       {
