@@ -142,7 +142,7 @@ The application result-query layer is intentionally read-only: it gets one persi
 
 The handler validates route/query cardinality, bounds, enums, safe relative paths, and export format before calling the application layer. Query errors are `400 VALIDATION_ERROR`; views unavailable before successful report finalization are `409 RESULT_UNAVAILABLE`; a requested file not present in the stored report is `404 ANALYSIS_FILE_NOT_FOUND`.
 
-CORS defaults to same-origin. `-cors-allowed-origins` is parsed at startup into an exact `http`/`https` origin allowlist; wildcard and non-origin entries are rejected. Security middleware consistently emits conservative no-store, MIME, frame, referrer, cross-origin-resource, and CSP headers. CORS preflight and cross-origin access are limited to the configured exact browser origins.
+During the current development phase, CORS permits requests from every browser origin without credentials. Requests with an `Origin` header receive a wildcard CORS response for `GET`, `POST`, and `OPTIONS` using `Content-Type`. This temporary policy must be restricted to same-origin or explicit trusted origins before a public release. Security middleware continues to emit conservative no-store, MIME, frame, referrer, cross-origin-resource, and CSP headers.
 
 The detailed request/response contract is in [`api-contract.md`](api-contract.md), and the embedded OpenAPI 3.1 definition is linted as part of delivery.
 

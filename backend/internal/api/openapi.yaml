@@ -10,8 +10,9 @@ info:
     and Git analysis reads history from paths on the same machine as this Go
     service. Risk analysis scores only their supplied analytical facts. The API
     never accepts repository source content and never executes files it reads.
-    Browser access is same-origin by default; the local server can opt into an
-    exact trusted-origin allowlist with its cors-allowed-origins flag.
+    During development, browser access is permitted from every origin without
+    credentials. This temporary permissive CORS policy must be restricted before
+    any public release.
 servers:
   - url: http://127.0.0.1:8080/api/v1
     description: Default local-only server

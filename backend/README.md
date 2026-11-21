@@ -147,11 +147,7 @@ GET /api/v1/analyses/{analysisId}/export?format=json|csv
 
 File and hotspot lists support bounded pagination, project-relative path/module filters, and deterministic sorting. Results and exports never expose absolute local paths. CSV output prefixes formula-leading path values before writing them to protect spreadsheet users. The full route/query/error contract is in [`../docs/api-contract.md`](../docs/api-contract.md).
 
-The API is same-origin by default. To allow a local browser UI on a separate exact origin, opt in at startup; wildcards and path-bearing origins are rejected:
-
-```bash
-go run ./cmd/server -cors-allowed-origins=http://127.0.0.1:5173
-```
+During the current development phase, the API permits browser requests from every origin. This keeps a separately hosted local UI working without extra startup flags. The permissive CORS policy does not allow cross-origin credentials, but it must be replaced with a strict same-origin or explicit trusted-origin policy before a public release.
 
 ## Swagger / OpenAPI
 

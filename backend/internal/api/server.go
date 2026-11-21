@@ -57,32 +57,21 @@ type handler struct {
 	gitHistory     *githistory.Analyzer
 	riskEngine     *scoring.Engine
 	analyses       *application.Orchestrator
-	allowedOrigins map[string]struct{}
 }
 
 // NewHandler returns the local v1 API handler. The static-analysis API reads
 // only requested local files and never executes repository source.
 func NewHandler(version string) http.Handler {
-	return newHandler(version, nil, map[string]struct{}{})
+	return newHandler(version, nil)
 }
 
 // NewHandlerWithAnalysisService composes the local HTTP API with the durable
 // asynchronous analysis orchestration service.
 func NewHandlerWithAnalysisService(version string, analyses *application.Orchestrator) http.Handler {
-	return newHandler(version, analyses, map[string]struct{}{})
+	return newHandler(version, analyses)
 }
 
-// NewHandlerWithAnalysisServiceAndCORS composes the local API with an explicit
-// exact-origin CORS allowlist. An empty allowlist keeps the API same-origin.
-func NewHandlerWithAnalysisServiceAndCORS(version string, analyses *application.Orchestrator, origins []string) (http.Handler, error) {
-	allowedOrigins, err := allowedOriginSet(origins)
-	if err != nil {
-		return nil, err
-	}
-	return newHandler(version, analyses, allowedOrigins), nil
-}
-
-func newHandler(version string, analyses *application.Orchestrator, allowedOrigins map[string]struct{}) http.Handler {
+func newHandler(version string, analyses *application.Orchestrator) http.Handler {
 	failures := failedfiles.NewRegistry()
 	return &handler{
 		version:        version,
@@ -90,7 +79,6 @@ func newHandler(version string, analyses *application.Orchestrator, allowedOrigi
 		gitHistory:     githistory.NewAnalyzer(),
 		riskEngine:     scoring.NewEngine(),
 		analyses:       analyses,
-		allowedOrigins: allowedOrigins,
 	}
 }
 
