@@ -1,8 +1,25 @@
 # Frontend
 
-Independent Next.js + TypeScript application for the local Code Risk Analyzer experience.
+داشبورد فارسی و RTL پروژهٔ **Code Risk Analyzer** با React، TypeScript و Vite ساخته شده است. این برنامه فقط با API محلی ارتباط می‌گیرد؛ هیچ مسیر پروژه یا کد منبعی به سرویس خارجی ارسال نمی‌شود.
 
-## Run locally
+## فناوری‌ها و معماری
+
+- React 19 + TypeScript + Vite
+- Tailwind CSS v4 و design tokenهای قابل استفاده مجدد در `src/styles/globals.css`
+- کامپوننت‌های پایهٔ shadcn/ui در `src/components/ui`
+- React Router برای routeهای داشبورد
+- TanStack Query برای درخواست‌ها و cache API
+- Zustand برای state رابط کاربری (مانند sidebar موبایل و ترجیحات نمایش)
+- ساختار Atomic Design:
+  - `components/atoms` برای اجزای هویتی کوچک
+  - `components/molecules` برای ترکیب‌های کوچک UI
+  - `components/organisms` برای sidebar و header
+  - `components/templates` برای shell اصلی داشبورد
+  - `features/*` برای صفحه‌ها و اجزای دامنه‌ای
+
+## اجرا
+
+ابتدا API محلی Go را از پوشهٔ `../backend` اجرا کنید. سپس:
 
 ```bash
 cd frontend
@@ -10,16 +27,23 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by Next.js. Browser API requests use relative `/api/...` paths only. `next.config.ts` proxies those paths server-side to the Go API at `127.0.0.1:8080`, so frontend code does not call an external analysis service or directly access a repository.
+Vite روی همهٔ interfaceها bind می‌شود. مسیرهای نسبی `/api/...` در dev server به `http://127.0.0.1:8080` proxy می‌شوند. کد مرورگر باید فقط از مسیرهای نسبی مانند `/api/v1/analyses` استفاده کند و نباید به `localhost` یا سرویس خارجی درخواست مستقیم بفرستد.
 
-The current UI is an honest foundation page. It does not display mock analysis results or provide a repository-analysis form until those backend capabilities exist.
+## مسیرهای فعلی
 
-## Quality commands
+| مسیر | کاربرد |
+| --- | --- |
+| `/` | نمای کلی و وضعیت اتصال سرویس محلی |
+| `/analyses` | فهرست تحلیل‌های ذخیره‌شده |
+| `/analyses/new` | ثبت یک تحلیل جدید با مسیر محلی پروژه |
+| `/settings` | ترجیحات محلی رابط کاربری |
+
+تمام داده‌های تحلیل در UI از API واقعی خوانده می‌شوند؛ صفحه‌ها دادهٔ نمونه یا نتیجهٔ ساختگی نمایش نمی‌دهند.
+
+## کیفیت
 
 ```bash
 npm run typecheck
 npm test
 npm run build
 ```
-
-Start the Go API separately from `../backend` before selecting **Check local API health**.
