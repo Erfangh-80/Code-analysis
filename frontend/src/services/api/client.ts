@@ -3,6 +3,42 @@ import type { ApiErrorPayload } from "@/types/api";
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 const defaultTimeoutMs = 20_000;
 
+// Go's JSON encoder can serialize an uninitialized slice as null even when an
+// endpoint contract describes an array. Normalize those transport-level nulls
+// at the API boundary so presentation code never has to guess whether a list
+// is iterable. Scalar nulls (for example optional timestamps) stay unchanged.
+const collectionKeys = new Set([
+  "availableMetrics",
+  "classes",
+  "cells",
+  "contributions",
+  "diagnostics",
+  "files",
+  "functions",
+  "items",
+  "limitations",
+  "modules",
+  "previousPaths",
+  "stages",
+  "unavailableMetrics",
+]);
+
+function normalizeNullableCollections(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeNullableCollections);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      collectionKeys.has(key) && child === null ? [] : normalizeNullableCollections(child),
+    ]),
+  );
+}
+
 export class ApiRequestError extends Error {
   readonly status: number;
   readonly code: string;
@@ -99,7 +135,7 @@ async function request(path: string, init: ApiRequestOptions = {}) {
 
 export async function apiRequest<T>(path: string, init?: ApiRequestOptions): Promise<T> {
   const response = await request(path, init);
-  return response.json() as Promise<T>;
+  return normalizeNullableCollections(await response.json()) as T;
 }
 
 export async function apiDownload(path: string, init?: ApiRequestOptions) {

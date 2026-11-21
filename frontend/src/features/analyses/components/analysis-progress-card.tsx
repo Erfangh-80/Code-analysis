@@ -24,7 +24,8 @@ const stageTone: Record<StageStatus, string> = {
 
 export function AnalysisProgressCard({ analysis, onCancel, isCancelling = false }: AnalysisProgressCardProps) {
   const active = analysis.status === "queued" || analysis.status === "running";
-  const diagnostics = analysis.diagnostics.filter((diagnostic) => diagnostic.severity === "error").slice(-3);
+  const stages = analysis.stages ?? [];
+  const diagnostics = (analysis.diagnostics ?? []).filter((diagnostic) => diagnostic.severity === "error").slice(-3);
 
   return (
     <div className="space-y-5">
@@ -74,7 +75,7 @@ export function AnalysisProgressCard({ analysis, onCancel, isCancelling = false 
       </div>
 
       <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5" aria-label="مراحل تحلیل">
-        {analysis.stages.map((stage) => (
+        {stages.map((stage) => (
           <li key={stage.stage} className="rounded-xl border bg-card p-3">
             <div className="flex items-center gap-2">
               <span className={cn("grid size-6 place-items-center rounded-full text-[0.65rem] font-black", stageTone[stage.status])}>

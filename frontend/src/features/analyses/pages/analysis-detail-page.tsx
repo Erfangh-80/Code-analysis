@@ -1,5 +1,4 @@
-import { Download, FileText, Layers3, LoaderCircle, Route, ShieldAlert } from "lucide-react";
-import { useState } from "react";
+import { FileOutput, FileText, Layers3, Route, ShieldAlert } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { ApiErrorState, EmptyState, LoadingState } from "@/components/molecules/async-state";
@@ -11,13 +10,7 @@ import { RiskLevelBadge } from "@/features/analyses/components/risk-level-badge"
 import { useAnalysisHeatmapQuery, useAnalysisHotspotsQuery, useAnalysisQuery, useAnalysisReportQuery, useAnalysisSummaryQuery, useCancelAnalysisMutation } from "@/hooks/use-analysis-queries";
 import { formatNumber, metricLabels } from "@/lib/analysis";
 import { formatDateTime } from "@/lib/utils";
-import { analysisApi } from "@/services/api/analysis-api";
 import { getApiErrorMessage } from "@/services/api/client";
-
-function filenameFromDisposition(contentDisposition: string | null, fallback: string) {
-  const match = contentDisposition?.match(/filename="?([^";]+)"?/i);
-  return match?.[1] ?? fallback;
-}
 
 export function AnalysisDetailPage() {
   const { analysisId } = useParams();
@@ -29,29 +22,7 @@ export function AnalysisDetailPage() {
   const heatmap = useAnalysisHeatmapQuery(analysisId, completed);
   const report = useAnalysisReportQuery(analysisId, completed);
   const cancel = useCancelAnalysisMutation(analysisId ?? "");
-  const [exporting, setExporting] = useState<"json" | "csv" | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
-
-  async function download(format: "json" | "csv") {
-    if (!analysisId) return;
-    setExporting(format);
-    setExportError(null);
-    try {
-      const file = await analysisApi.export(analysisId, format, { timeoutMs: 60_000 });
-      const url = URL.createObjectURL(file.blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filenameFromDisposition(file.contentDisposition, `analysis-${analysisId}.${format}`);
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setExportError(getApiErrorMessage(error, "امکان دریافت خروجی گزارش وجود ندارد."));
-    } finally {
-      setExporting(null);
-    }
-  }
+  const limitations = report.data?.artifacts.risk?.limitations ?? [];
 
   if (!analysisId) {
     return <EmptyState title="شناسهٔ تحلیل مشخص نیست" description="برای مشاهدهٔ نتیجه، یک تحلیل معتبر را از فهرست انتخاب کنید." />;
@@ -75,18 +46,11 @@ export function AnalysisDetailPage() {
         </div>
         {completed && (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" disabled={exporting !== null} onClick={() => download("json")}>
-              {exporting === "json" ? <LoaderCircle className="size-3.5 animate-spin" /> : <Download className="size-3.5" />} JSON
-            </Button>
-            <Button variant="outline" size="sm" disabled={exporting !== null} onClick={() => download("csv")}>
-              {exporting === "csv" ? <LoaderCircle className="size-3.5 animate-spin" /> : <Download className="size-3.5" />} CSV
-            </Button>
+            <Button variant="outline" size="sm" asChild><Link to={`/analyses/${encodeURIComponent(data.id)}/report`}><FileOutput className="size-3.5" />گزارش و خروجی</Link></Button>
             <Button size="sm" asChild><Link to={`/analyses/${encodeURIComponent(data.id)}/files`}><FileText className="size-3.5" />فایل‌ها</Link></Button>
           </div>
         )}
       </section>
-
-      {exportError && <div className="rounded-lg border border-destructive/25 bg-destructive/7 p-3 text-sm text-destructive" role="alert">{exportError}</div>}
 
       <AnalysisProgressCard analysis={data} onCancel={() => cancel.mutate()} isCancelling={cancel.isPending} />
       {cancel.isError && <div className="rounded-lg border border-destructive/25 bg-destructive/7 p-3 text-sm text-destructive">{getApiErrorMessage(cancel.error)}</div>}
@@ -108,8 +72,8 @@ export function AnalysisDetailPage() {
             </section>
           )}
 
-          {report.data?.artifacts.risk?.limitations.length ? (
-            <Card className="border-warning/25 bg-warning/8"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldAlert className="size-4 text-[color:var(--warning)]" />محدودیت‌های مدل ریسک</CardTitle></CardHeader><CardContent><ul className="space-y-1 text-sm leading-6 text-muted-foreground">{report.data.artifacts.risk.limitations.map((limitation) => <li key={limitation}>• {limitation}</li>)}</ul></CardContent></Card>
+          {limitations.length ? (
+            <Card className="border-warning/25 bg-warning/8"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ShieldAlert className="size-4 text-[color:var(--warning)]" />محدودیت‌های مدل ریسک</CardTitle></CardHeader><CardContent><ul className="space-y-1 text-sm leading-6 text-muted-foreground">{limitations.map((limitation) => <li key={limitation}>• {limitation}</li>)}</ul></CardContent></Card>
           ) : null}
 
           <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -119,7 +83,7 @@ export function AnalysisDetailPage() {
                 {hotspots.isPending && <LoadingState />}
                 {hotspots.isError && <ApiErrorState error={hotspots.error} onRetry={() => hotspots.refetch()} title="Hotspotها قابل دریافت نیستند" />}
                 {hotspots.data && <ol className="divide-y">{hotspots.data.items.map((hotspot) => (
-                  <li key={hotspot.path} className="py-3 first:pt-0 last:pb-0"><div className="flex items-start justify-between gap-3"><Link className="min-w-0 truncate font-mono text-xs font-bold hover:text-primary hover:underline" dir="ltr" to={`/analyses/${encodeURIComponent(data.id)}/files/detail?path=${encodeURIComponent(hotspot.path)}`}>{hotspot.path}</Link><div className="flex shrink-0 items-center gap-2"><RiskLevelBadge level={hotspot.level} /><span className="font-black text-destructive">{hotspot.score}</span></div></div><p className="mt-2 text-xs text-muted-foreground">{hotspot.contributions.filter((entry) => entry.weighted > 0).sort((a, b) => b.weighted - a.weighted).slice(0, 2).map((entry) => metricLabels[entry.metric]).join(" · ") || "معیار مؤثری ثبت نشده است"}</p></li>
+                  <li key={hotspot.path} className="py-3 first:pt-0 last:pb-0"><div className="flex items-start justify-between gap-3"><Link className="min-w-0 truncate font-mono text-xs font-bold hover:text-primary hover:underline" dir="ltr" to={`/analyses/${encodeURIComponent(data.id)}/files/detail?path=${encodeURIComponent(hotspot.path)}`}>{hotspot.path}</Link><div className="flex shrink-0 items-center gap-2"><RiskLevelBadge level={hotspot.level} /><span className="font-black text-destructive">{hotspot.score}</span></div></div><p className="mt-2 text-xs text-muted-foreground">{(hotspot.contributions ?? []).filter((entry) => entry.weighted > 0).sort((a, b) => b.weighted - a.weighted).slice(0, 2).map((entry) => metricLabels[entry.metric]).join(" · ") || "معیار مؤثری ثبت نشده است"}</p></li>
                 ))}</ol>}
               </CardContent>
             </Card>

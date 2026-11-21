@@ -37,12 +37,13 @@ Vite روی همهٔ interfaceها bind می‌شود. مسیرهای نسبی `
 | `/` | نمای کلی و وضعیت اتصال سرویس محلی |
 | `/analyses` | فهرست تحلیل‌های ذخیره‌شده |
 | `/analyses/new` | ثبت تحلیل با مسیر محلی، بازهٔ Git و وزن‌های Hotspot |
-| `/analyses/:analysisId` | پیشرفت زنده، Dashboard گزارش، Heatmap و خروجی JSON/CSV |
+| `/analyses/:analysisId` | پیشرفت زنده، Dashboard گزارش و Heatmap |
+| `/analyses/:analysisId/report` | پیش‌نمایش گزارش immutable و دریافت JSON/CSV با وضعیت خطا |
 | `/analyses/:analysisId/files` | جدول فایل‌ها با جست‌وجو، فیلتر، مرتب‌سازی و صفحه‌بندی |
 | `/analyses/:analysisId/files/detail?path=…` | جزئیات Static/Git/Risk و contributionهای فایل |
 | `/settings` | ترجیحات محلی رابط کاربری |
 
-تمام داده‌های تحلیل در UI از API واقعی خوانده می‌شوند؛ صفحه‌ها دادهٔ نمونه یا نتیجهٔ ساختگی نمایش نمی‌دهند.
+تمام داده‌های تحلیل در UI از API واقعی خوانده می‌شوند؛ صفحه‌ها دادهٔ نمونه یا نتیجهٔ ساختگی نمایش نمی‌دهند. خطاهای render مسیرها با `errorElement` اختصاصی به صفحه‌ای قابل‌اقدام تبدیل می‌شوند؛ جدول‌ها، کنترل‌های خروجی و Heatmap نیز نام/جایگزین قابل‌دسترسی دارند.
 
 ## کیفیت
 

@@ -1,6 +1,6 @@
 import { Info } from "lucide-react";
 import { Cell, CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { EmptyState } from "@/components/molecules/async-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +41,7 @@ function HeatmapTooltip({ active, payload }: { active?: boolean; payload?: Reado
 
 export function RiskHeatmap({ analysisId, data }: RiskHeatmapProps) {
   const navigate = useNavigate();
+  const cells = data.cells ?? [];
 
   return (
     <Card>
@@ -51,11 +52,11 @@ export function RiskHeatmap({ analysisId, data }: RiskHeatmapProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {data.cells.length === 0 ? (
+        {cells.length === 0 ? (
           <EmptyState title="داده‌ای برای Heatmap موجود نیست" description="این تحلیل دادهٔ ریسک کافی برای رسم نقاط ندارد." className="min-h-72" />
         ) : (
           <>
-            <div className="h-[22.5rem] min-h-72" dir="ltr">
+            <div className="h-[22.5rem] min-h-72 rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/25" dir="ltr" role="img" tabIndex={0} aria-label={`Heatmap فایل‌ها با محور افقی ${metricLabels[data.xMetric]} و محور عمودی ${metricLabels[data.yMetric]}`}>
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 16, right: 16, bottom: 20, left: 8 }}>
                   <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
@@ -79,7 +80,7 @@ export function RiskHeatmap({ analysisId, data }: RiskHeatmapProps) {
                     content={(props) => <HeatmapTooltip active={props.active} payload={props.payload as ReadonlyArray<{ payload?: HeatmapCell }> | undefined} />}
                   />
                   <Scatter
-                    data={data.cells}
+                    data={cells}
                     name="فایل‌ها"
                     onClick={(point) => {
                       const cell = (point as { payload?: HeatmapCell }).payload;
@@ -89,11 +90,20 @@ export function RiskHeatmap({ analysisId, data }: RiskHeatmapProps) {
                     }}
                     className="cursor-pointer"
                   >
-                    {data.cells.map((cell) => <Cell key={cell.path} fill={levelColor[cell.level]} stroke="var(--card)" strokeWidth={2} />)}
+                    {cells.map((cell) => <Cell key={cell.path} fill={levelColor[cell.level]} stroke="var(--card)" strokeWidth={2} />)}
                   </Scatter>
                 </ScatterChart>
               </ResponsiveContainer>
             </div>
+            <ul className="sr-only" aria-label="فهرست قابل‌دسترسی نقاط Heatmap">
+              {cells.map((cell) => (
+                <li key={cell.path}>
+                  <Link to={`/analyses/${encodeURIComponent(analysisId)}/files/detail?path=${encodeURIComponent(cell.path)}`}>
+                    {cell.path}، ریسک {riskLevelLabels[cell.level]}، امتیاز {cell.score}
+                  </Link>
+                </li>
+              ))}
+            </ul>
             <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t pt-4 text-xs">
               {(["low", "medium", "high"] as RiskLevel[]).map((level) => (
                 <span key={level} className="inline-flex items-center gap-2">

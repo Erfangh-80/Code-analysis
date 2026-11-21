@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 function Table({ className, ...props }: ComponentProps<"table">) {
   return (
-    <div className="w-full overflow-x-auto">
+    <div className="w-full overflow-x-auto rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/25" role="region" tabIndex={0} aria-label="جدول قابل پیمایش افقی">
       <table className={cn("w-full caption-bottom text-right text-sm", className)} {...props} />
     </div>
   );
