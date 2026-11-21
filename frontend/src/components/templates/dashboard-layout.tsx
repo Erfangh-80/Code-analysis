@@ -17,13 +17,19 @@ const defaultHeader: Required<RouteHandle> = {
 export function DashboardLayout() {
   const matches = useMatches();
   const density = useUIStore((state) => state.density);
+  const theme = useUIStore((state) => state.theme);
   const matchWithHeader = [...matches].reverse().find((match) => match.handle) as
     | (typeof matches)[number] & { handle?: RouteHandle }
     | undefined;
   const header = { ...defaultHeader, ...matchWithHeader?.handle };
 
   return (
-    <div className="min-h-screen bg-background text-foreground" dir="rtl" data-density={density}>
+    <div
+      className="min-h-screen bg-background text-foreground"
+      dir="rtl"
+      data-density={density}
+      data-theme={theme}
+    >
       <AppSidebar />
       <div className="min-h-screen lg:mr-72">
         <DashboardHeader title={header.title} description={header.description} />

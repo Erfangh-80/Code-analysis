@@ -74,16 +74,48 @@
   --shadow-float: 0 22px 55px rgb(8 42 44 / 0.16);
 }
 
+:root[data-theme="dark"] {
+  --background: oklch(0.18 0.018 215);
+  --foreground: oklch(0.94 0.012 190);
+  --card: oklch(0.225 0.019 215);
+  --card-foreground: oklch(0.94 0.012 190);
+  --popover: oklch(0.245 0.022 215);
+  --popover-foreground: oklch(0.94 0.012 190);
+  --primary: oklch(0.72 0.12 179);
+  --primary-foreground: oklch(0.19 0.03 210);
+  --secondary: oklch(0.3 0.047 205);
+  --secondary-foreground: oklch(0.9 0.035 178);
+  --muted: oklch(0.28 0.018 213);
+  --muted-foreground: oklch(0.72 0.026 199);
+  --accent: oklch(0.43 0.09 166);
+  --accent-foreground: oklch(0.94 0.02 165);
+  --destructive: oklch(0.7 0.16 27);
+  --destructive-foreground: oklch(0.23 0.04 25);
+  --border: oklch(0.35 0.018 211);
+  --input: oklch(0.35 0.018 211);
+  --ring: oklch(0.72 0.12 179);
+  --success: oklch(0.74 0.13 153);
+  --warning: oklch(0.83 0.16 76);
+  --info: oklch(0.73 0.12 237);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.2), 0 12px 32px rgb(0 0 0 / 0.2);
+  --shadow-float: 0 25px 60px rgb(0 0 0 / 0.42);
+}
+
 * {
   border-color: var(--border);
 }
 
 html {
   min-width: 320px;
+  color-scheme: light;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
   text-rendering: optimizeLegibility;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {
@@ -93,6 +125,13 @@ body {
   background:
     radial-gradient(circle at 88% 2%, rgb(129 220 194 / 0.25), transparent 24rem),
     radial-gradient(circle at 2% 95%, rgb(251 191 36 / 0.12), transparent 28rem),
+    var(--background);
+}
+
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 88% 2%, rgb(45 166 145 / 0.22), transparent 25rem),
+    radial-gradient(circle at 2% 95%, rgb(193 133 33 / 0.1), transparent 30rem),
     var(--background);
 }
 

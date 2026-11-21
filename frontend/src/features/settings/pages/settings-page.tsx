@@ -13,6 +13,8 @@ import { useUIStore } from "@/store/ui-store";
 export function SettingsPage() {
   const density = useUIStore((state) => state.density);
   const setDensity = useUIStore((state) => state.setDensity);
+  const theme = useUIStore((state) => state.theme);
+  const setTheme = useUIStore((state) => state.setTheme);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -30,6 +32,18 @@ export function SettingsPage() {
         </CardHeader>
         <CardContent className="grid gap-5 border-t pt-5 sm:grid-cols-2 sm:items-end">
           <label className="grid gap-2 text-sm font-extrabold">
+            حالت نمایش
+            <Select value={theme} onValueChange={(value) => setTheme(value as "light" | "dark")}>
+              <SelectTrigger aria-label="حالت نمایش">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="light">روشن</SelectItem>
+                <SelectItem value="dark">تاریک</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="grid gap-2 text-sm font-extrabold">
             تراکم نمایش فهرست‌ها
             <Select value={density} onValueChange={(value) => setDensity(value as "comfortable" | "compact")}>
               <SelectTrigger aria-label="تراکم نمایش فهرست‌ها">
@@ -41,9 +55,9 @@ export function SettingsPage() {
               </SelectContent>
             </Select>
           </label>
-          <p className="flex gap-2 text-sm leading-6 text-muted-foreground">
+          <p className="flex gap-2 text-sm leading-6 text-muted-foreground sm:col-span-2">
             <Check className="mt-0.5 size-4 shrink-0 text-success" />
-            انتخاب شما با Zustand در state رابط ذخیره می‌شود و به API تحلیل ارسال نمی‌شود.
+            انتخاب‌های شما با Zustand در مرورگر ذخیره می‌شوند و به API تحلیل ارسال نمی‌شوند.
           </p>
         </CardContent>
       </Card>
