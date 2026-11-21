@@ -9,7 +9,7 @@
 - کامپوننت‌های پایهٔ shadcn/ui در `src/components/ui`
 - React Router برای routeهای داشبورد
 - TanStack Query برای درخواست‌ها و cache API
-- Zustand برای state رابط کاربری (مانند sidebar موبایل و ترجیحات نمایش)
+- Zustand برای state رابط کاربری (مانند sidebar موبایل، حالت روشن/تاریک و ترجیحات نمایش)
 - ساختار Atomic Design:
   - `components/atoms` برای اجزای هویتی کوچک
   - `components/molecules` برای ترکیب‌های کوچک UI

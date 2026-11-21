@@ -8,6 +8,19 @@
       name="description"
       content="داشبورد محلی تحلیل ریسک کد و تاریخچه تغییرات مخزن."
     />
+    <script>
+      try {
+        const savedUI = JSON.parse(localStorage.getItem("code-risk-analyzer-ui") || "{}");
+        const theme = savedUI.state?.theme;
+        if (theme === "light" || theme === "dark") {
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+          document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#10282d" : "#0f766e");
+        }
+      } catch {
+        // A missing or malformed saved preference should never block startup.
+      }
+    </script>
     <title>تحلیل‌گر ریسک کد</title>
   </head>
   <body>

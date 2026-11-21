@@ -35,13 +35,8 @@ func main() {
 	address := flag.String("addr", "127.0.0.1:8080", "local HTTP listen address")
 	dataPath := flag.String("data", defaultDatabasePath(), "local SQLite analysis database path")
 	maxConcurrentRuns := flag.Int("max-concurrent-runs", 2, "maximum local project analyses running at once")
-	corsAllowedOrigins := flag.String("cors-allowed-origins", "", "comma-separated exact trusted browser origins; empty keeps the API same-origin")
 	flag.Parse()
 
-	allowedOrigins, err := api.ParseAllowedOrigins(*corsAllowedOrigins)
-	if err != nil {
-		log.Fatalf("parse CORS allowed origins: %v", err)
-	}
 	store, err := sqlite.Open(*dataPath)
 	if err != nil {
 		log.Fatalf("open local analysis database: %v", err)
@@ -57,10 +52,7 @@ func main() {
 		scoring.NewEngine(),
 		*maxConcurrentRuns,
 	)
-	handler, err := api.NewHandlerWithAnalysisServiceAndCORS(version, orchestrator, allowedOrigins)
-	if err != nil {
-		log.Fatalf("configure API CORS: %v", err)
-	}
+	handler := api.NewHandlerWithAnalysisService(version, orchestrator)
 
 	server := &http.Server{
 		Addr:              *address,

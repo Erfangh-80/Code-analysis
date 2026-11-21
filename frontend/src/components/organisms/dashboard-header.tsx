@@ -1,4 +1,4 @@
-import { Menu, ShieldCheck } from "lucide-react";
+import { Menu, Moon, ShieldCheck, Sun } from "lucide-react";
 
 import { APIConnectionStatus } from "@/components/molecules/api-connection-status";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,9 @@ interface DashboardHeaderProps {
 
 export function DashboardHeader({ title, description }: DashboardHeaderProps) {
   const openMobileSidebar = useUIStore((state) => state.openMobileSidebar);
+  const theme = useUIStore((state) => state.theme);
+  const setTheme = useUIStore((state) => state.setTheme);
+  const isDark = theme === "dark";
 
   return (
     <header className="flex flex-col gap-4 border-b bg-background/75 px-5 py-4 backdrop-blur-sm sm:px-7 lg:px-10">
@@ -38,7 +41,19 @@ export function DashboardHeader({ title, description }: DashboardHeaderProps) {
             <p className="mt-1 text-sm text-muted-foreground">{description}</p>
           </div>
         </div>
-        <APIConnectionStatus />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label={isDark ? "فعال‌کردن حالت روشن" : "فعال‌کردن حالت تاریک"}
+            aria-pressed={isDark}
+            title={isDark ? "فعال‌کردن حالت روشن" : "فعال‌کردن حالت تاریک"}
+            onClick={() => setTheme(isDark ? "light" : "dark")}
+          >
+            {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          </Button>
+          <APIConnectionStatus />
+        </div>
       </div>
 
       <Dialog>

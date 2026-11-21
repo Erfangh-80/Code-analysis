@@ -142,13 +142,9 @@ CSV text cells that begin with `=`, `+`, `-`, or `@` are prefixed to prevent spr
 
 ## Browser access and security headers
 
-The default local API is same-origin. Cross-origin browser access is disabled unless the server is launched with `-cors-allowed-origins` containing comma-separated, exact `http` or `https` origins, for example:
+During the current development phase, the local API permits cross-origin browser requests from every origin. Requests with an `Origin` header receive `Access-Control-Allow-Origin: *`, and the permitted methods are `GET`, `POST`, and `OPTIONS` with the `Content-Type` request header. CORS credentials are not enabled.
 
-```text
--cors-allowed-origins=http://127.0.0.1:5173
-```
-
-Wildcards, credentials, paths, queries, and fragments are rejected. Allowed origins receive only `GET`, `POST`, and `OPTIONS` CORS methods with `Content-Type`; an untrusted browser origin receives `403 CORS_ORIGIN_DENIED`. Responses also include `nosniff`, frame/referrer/cross-origin-resource protections, a restrictive frame/base/object CSP, and `Cache-Control: no-store`.
+This permissive policy is temporary and must be replaced with a same-origin or explicit trusted-origin policy before a public release. Responses continue to include `nosniff`, frame/referrer/cross-origin-resource protections, a restrictive frame/base/object CSP, and `Cache-Control: no-store`.
 
 ## Scope, discovery, and Git availability
 
