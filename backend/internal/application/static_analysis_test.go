@@ -2,12 +2,10 @@ package application_test
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/Erfangh-80/code-analysis/backend/internal/analysisguard"
 	"github.com/Erfangh-80/code-analysis/backend/internal/analyzer/static"
 	"github.com/Erfangh-80/code-analysis/backend/internal/application"
 	"github.com/Erfangh-80/code-analysis/backend/internal/domain"
