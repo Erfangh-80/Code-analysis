@@ -46,7 +46,7 @@ func TestGuardedHandlerRejectsOutsidePathsWithoutLeakingSourceOrHostPath(t *test
 	if err != nil {
 		t.Fatalf("new guarded Git service: %v", err)
 	}
-	handler := NewHandlerWithServices("test-version", nil, staticService, gitService)
+	handler := NewHandlerWithCoreServices("test-version", staticService, gitService)
 	payload, err := json.Marshal(map[string]any{"rootPath": outsideRoot, "files": []string{"secret.go"}})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)

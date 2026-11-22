@@ -4,26 +4,30 @@ import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-extrabold leading-none",
+  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-extrabold whitespace-nowrap",
   {
     variants: {
       variant: {
-        default: "border-primary/15 bg-primary/10 text-primary",
-        success: "border-success/20 bg-success/12 text-[color:var(--success)]",
-        warning: "border-warning/25 bg-warning/15 text-[color:var(--warning)]",
-        destructive: "border-destructive/20 bg-destructive/10 text-destructive",
-        muted: "border-border bg-muted text-muted-foreground",
-        outline: "border-border bg-transparent text-foreground",
+        muted: "border-transparent bg-muted text-muted-foreground",
+        info: "border-info/30 bg-info/10 text-info",
+        success: "border-success/30 bg-success/10 text-success",
+        warning: "border-warning/30 bg-warning/10 text-warning",
+        destructive: "border-destructive/30 bg-destructive/10 text-destructive",
+        outline: "text-foreground",
       },
     },
-    defaultVariants: { variant: "default" },
+    defaultVariants: {
+      variant: "muted",
+    },
   },
 );
 
-interface BadgeProps extends HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {}
+export type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>;
+
+export interface BadgeProps extends HTMLAttributes<HTMLSpanElement>, VariantProps<typeof badgeVariants> {}
 
 function Badge({ className, variant, ...props }: BadgeProps) {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
+  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
 export { Badge, badgeVariants };

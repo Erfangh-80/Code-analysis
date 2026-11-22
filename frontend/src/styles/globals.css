@@ -1,4 +1,12 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-in,
+  .animate-out {
+    animation: none;
+  }
+}
 
 @theme inline {
   --color-background: var(--background);

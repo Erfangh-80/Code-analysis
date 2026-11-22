@@ -1,12 +1,13 @@
-# Integration QA and final evaluation
+# Phase 1–4 QA and evaluation ledger
 
-This is the evidence ledger for the backend–frontend integration and final QA phase. It separates executable coverage from host-dependent measurements and model evaluation. A check is **not** treated as passed merely because a mock can render a screen.
+This ledger covers only the phase-only branch: acceptance criteria, direct local architecture/test data, static analysis, and Git-history Hotspot scoring. It does not claim validation for the removed persistence/report/dashboard/export product.
 
-## How to run the automated evidence
+## Automated quality gate
 
 ```bash
-# Backend (Go 1.23 with CGO and Git available)
+# Backend: Go 1.23, Git and a C compiler with CGO available
 cd backend
+gofmt -w $(find . -name '*.go' -not -path './vendor/*')
 go test ./...
 
 # Frontend
@@ -15,102 +16,67 @@ npm ci
 npm run typecheck
 npm test -- --run
 npm run build
-npm audit --omit=dev --audit-level=high
 
-# API contract
+# API schema
 cd ..
 npx @redocly/cli@1.34.5 lint backend/internal/api/openapi.yaml
 ```
 
-The backend GitHub Actions workflow runs `go test ./...` on supported pushes and pull requests. The Arena development environment used for this change has no native Go toolchain, so Go verification must be read from that workflow rather than claimed as a local result.
+The repository's `Backend tests` GitHub Actions workflow runs `go test ./...` for backend changes. Arena's current sandbox does not provide a native Go binary, so local Go test/format output cannot be claimed here; use the workflow result or another Go-enabled host for that evidence.
 
-## Integration acceptance evidence
+### Current frontend evidence
 
-| ID | Implemented integration | Automated evidence |
+On this phase-only working tree, the following commands passed:
+
+- `npm run typecheck`
+- `npm test -- --run` — 7 files, 26 tests passed
+- `npm run build`
+
+The tests cover relative health transport, direct static/Git/risk transport, static result rendering, nullable collection normalization, local-service failures, request timeout, and no browser-side score calculation.
+
+## Acceptance coverage
+
+| ID | Criterion | Automated evidence |
 | --- | --- | --- |
-| INT-01 | The analysis form posts only a local `projectPath` to `POST /analyses/validate-path` before it can start a run. The backend resolves the canonical directory under the configured allowed roots and returns only `{ "valid": true }`. | `path_validation_test.go`; `new-analysis-page.test.tsx`; `new-analysis-page.integration.test.tsx` |
-| INT-02 | On successful preflight, the typed React Query mutation posts the selected path, history range, and risk profile to `POST /analyses`, then navigates to the returned analysis ID. Start repeats validation, so preflight is never a security reservation. | `analysis_orchestrator_test.go`; `new-analysis-page.test.tsx` |
-| INT-03 | The detail route polls the persisted lifecycle endpoint while status is `queued` or `running`, and displays backend stages/progress/cancellation state. | `use-analysis-queries.ts`; `analysis_orchestrator_test.go` |
-| INT-04 | Completed detail/report routes retrieve the saved summary; they do not recalculate counts in the browser. | `result_queries_test.go`; `analysis_results_test.go` |
-| INT-05 | The heatmap reads backend-saved axes/cells from `/heatmap`; unavailable Git metrics are not fabricated in static-only reports. | `engine_test.go`; `analysis_results_test.go` |
-| INT-06 | The files table retrieves the paginated joined static/Git/risk file view from `/files`. | `analysis_results_test.go` |
-| INT-07 | Search, language, risk level, score bounds, static status, deterministic sort, and pagination are serialized as `/files` query parameters and filtered in the application layer against the immutable report. | `result_queries_test.go`; `analysis_results_test.go`; `analysis-api.test.ts` |
-| INT-08 | File detail uses its project-relative path query and renders the API-provided static, optional Git, diagnostic, and contribution data. | `analysis_results_test.go`; `file-detail-page.test.tsx` |
-| INT-09 | JSON/CSV export calls `/export?format=...`, uses the attachment filename, and exposes a safe failure message without leaving the report route. | `export_test.go`; `analysis_results_test.go`; `report-export-card.test.tsx` |
-| INT-10 | Go API tests validate immutable result views and malformed queries; the frontend request boundary normalizes nullable Go array fields before components consume them. | `analysis_results_test.go`; `result_queries_test.go`; `client.test.ts`; `file-detail-page.test.tsx` |
-| INT-11 | The fetch boundary converts timeout and unreachable-service failures to retryable, human-readable local-service errors. The start form keeps the user on the form and does not post a run if preflight fails. | `client.test.ts`; `new-analysis-page.integration.test.tsx` |
-| INT-12 | A real `httptest` HTTP flow validates a fixture path, starts it, polls terminal state, and reads summary, hotspots, files, one file, modules, heatmap, report, JSON export, and CSV export. | `TestFullAnalysisFlowOverRealHTTPValidatesStartsPollsAndReadsResults` |
+| AC-01 | Direct API contains only health/OpenAPI/static/Git/risk surface; a missing route returns safe JSON `404`. | `internal/api/server_test.go`, `static_analysis_test.go` |
+| AC-02 | Static analysis recognizes real Go, JavaScript, and Python fixtures and returns real declaration/LOC metrics. | `internal/analyzer/static/analyzer_test.go` |
+| AC-03 | Static parser/read failures remain explicit and are safely observable without source content. | `internal/application/static_analysis_test.go`, `internal/api/static_analysis_test.go` |
+| AC-04 | Static input is an absolute allowed root plus optional relative files; without files, bounded discovery skips VCS/vendor/build directories and symlink escapes, and honors the file-count cap. | `analysisguard/guard_test.go`, `application/static_analysis*_test.go`, `application/static_analysis_discovery_test.go`, `api/guarded_services_test.go` |
+| AC-05 | Static file count, per-file bytes, and total bytes are bounded. | `application/static_analysis_limits_test.go`, `static_analysis_total_limit_test.go`, `api/guarded_services_limits_test.go` |
+| AC-06 | Git facts come from an actual temporary worktree and read-only Git commands; history dates, rename/deletion, empty/shallow history, and path facts have defined behavior. | `githistory/analyzer_test.go`, `internal/api/git_analysis_test.go` |
+| AC-07 | Git commit/output bounds are controlled. | `githistory/analyzer_limits_test.go` |
+| AC-08 | Risk model validates inputs/profiles, normalizes deterministically, ranks ties, assigns bands, aggregates modules, and returns heatmap/contribution explanations. | `scoring/engine_test.go` |
+| AC-09 | Missing Git availability is explicit: the scoring engine excludes unavailable metrics and renormalizes effective weights. | `scoring/engine_test.go`, `internal/api/risk_analysis_test.go` |
+| AC-10 | Direct API maps malformed input, method errors, path errors, and resource limits to safe HTTP responses. | `internal/api/*_test.go`, `security_test.go` |
+| AC-11 | OpenAPI and locally served Swagger remain available from the direct API. | `static_analysis_test.go`, `swagger_ui_test.go` |
+| AC-12 | The frontend displays a local three-step workflow, needs only a root path for static analysis, takes Jalali dates with Gregorian transport, paginates result tables, and sends direct relative requests without fabricated results. | `frontend/src/app/app.test.tsx`, `features/core/pages/core-analysis-page.test.tsx`, `lib/datetime.test.ts`, `services/api/core-api.test.ts` |
 
-## QA-01–QA-15: analysis and API correctness
+## Manual smoke workflow
 
-| ID | Scenario and current evidence | Status |
-| --- | --- | --- |
-| QA-01 | Go, JavaScript, and Python declarations and language recognition. | Automated: `analyzer_test.go` |
-| QA-02 | LOC, function/class counts, and max/total declaration lengths are asserted from fixtures. | Automated: `analyzer_test.go` |
-| QA-03 | Read-only Git churn, frequency, authors, first/last changes, concentration, and dispersion. | Automated: `githistory/analyzer_test.go` |
-| QA-04 | Hotspot scores, bands, normalization caps, and contribution weights. | Automated: `scoring/engine_test.go` |
-| QA-05 | Ranking, deterministic result ordering, module aggregate, and heatmap-cell correctness. | Automated: `engine_test.go`; `result_queries_test.go` |
-| QA-06 | Saved API summary/files/hotspots/heatmap/export are coherent views of one immutable report. | Automated: `analysis_results_test.go` |
-| QA-07 | Syntax error uses fallback only when possible and retains a `PARSE_ERROR`; the deferred parser-quality investigation is not reopened here. | Automated: `analyzer_test.go` |
-| QA-08 | Empty, comment-only/no-executable, and unsupported inputs retain honest status/metrics. | Automated: `analyzer_test.go`; `orchestrator_test.go` |
-| QA-09 | A non-Git project completes static analysis and static-only scoring; Git is unavailable rather than zero-filled. | Automated: `orchestrator_test.go`; `engine_test.go` |
-| QA-10 | Relative, malformed, unsafe, and invalid file/path inputs return safe validation errors. | Automated: `security_test.go`; `guarded_services_test.go`; `analysis_results_test.go`; `path_validation_test.go` |
-| QA-11 | A guarded scanner rejects a directory outside configured roots; the validation endpoint does not disclose that absolute path. | Automated: `scanner_limits_test.go`; `path_validation_test.go` |
-| QA-12 | Git deletion is retained as a deleted-history fact rather than a discovered working-tree source file. | Automated: `githistory/analyzer_test.go` |
-| QA-13 | Git rename maps the current path to the prior project-relative path. | Automated: `githistory/analyzer_test.go` |
-| QA-14 | Nullable arrays, absent optional artifacts, non-completed report access, and malformed result queries have explicit behavior. | Automated: `client.test.ts`; `file-detail-page.test.tsx`; `analysis_results_test.go` |
-| QA-15 | Completed reports survive SQLite reopen; duplicate active scopes and interrupted runs have controlled lifecycle behavior. | Automated: `infrastructure/sqlite/store_test.go`; `analysis_orchestrator_test.go` |
+Run this on a machine that has Go, Git, a compiler, and a small local repository:
 
-## QA-16–QA-24: UI behavior
+1. Start the backend with a deliberately narrow root:
+   ```bash
+   cd backend
+   go run ./cmd/server -allowed-root "$HOME/workspaces"
+   ```
+2. Start the frontend in another terminal with `npm run dev` from `frontend/`.
+3. In the workspace, submit a valid allowed root path. Confirm discovered file table rows and module count equal the backend response, and page through a result set larger than ten rows.
+4. Submit the repository worktree to Git analysis with and without a Jalali date range. Confirm commit count, paths, and diagnostics match `git log`/`git diff-tree` expectations without changes to `git status`, that a reversed range is blocked before submission, and that an empty range result shows its explanatory warning.
+5. Request Hotspot scoring. Confirm displayed rank/score/level/contributions are returned by `/risk-analysis`, not calculated in DevTools/browser code.
+6. Try a relative/outside root and `../` file path. Confirm a generic error, no source text, and no absolute path leak.
+7. Confirm browser keyboard access to labels, submit buttons, result tables, mobile navigation, theme button, and the privacy dialog.
 
-| ID | Scenario and current evidence | Status |
-| --- | --- | --- |
-| QA-16 | Local path entry rejects repository URLs client-side and performs API preflight before start. | Automated: `new-analysis-page.test.tsx` |
-| QA-17 | Active lifecycle polling and progress presentation consume actual analysis state. | Implemented and backend flow-tested; manual browser observation remains advisable. |
-| QA-18 | Completion enables API-backed summary, hotspots, report, and files links. | Implemented; `analysis_results_test.go` validates payloads. |
-| QA-19 | Path search is sent as `q` to the files API. | Automated transport coverage: `analysis-api.test.ts` |
-| QA-20 | Language, risk level, score range, static status, sorting, and pagination are server-side `/files` filters. | Automated: `result_queries_test.go`; `analysis_results_test.go`; `analysis-api.test.ts` |
-| QA-21 | Heatmap renders saved backend coordinates and links to a project-relative file detail view. | Implemented; backend payload asserted in `analysis_results_test.go`. |
-| QA-22 | File detail has loading/error/empty states and handles incomplete collection fields. | Automated: `file-detail-page.test.tsx` |
-| QA-23 | JSON and CSV download use the export API and surface download failures in place. | Automated: `report-export-card.test.tsx`; `export_test.go` |
-| QA-24 | Timeout/unreachable errors are actionable; responsive Tailwind breakpoints are implemented. Test viewport combinations manually in a browser before release. | Automated network branch: `client.test.ts`; `new-analysis-page.integration.test.tsx`. Responsive visual validation: manual. |
+Record operating system, Go/Node/Git versions, configured flags, fixture path shape, and observed errors. Do not use production repositories without authorization.
 
-## QA-25–QA-34: scale, duration, memory, and parallelism
+## Host-scale and model evaluation: not claimed
 
-No 1k/10k/100k/300k LOC or long-history benchmark result is claimed in this repository. The application contains resource boundaries, persisted stage timings, concurrency control, and controlled degradation, but those are safeguards rather than a capacity measurement.
+No full 1k/10k/100k/300k LOC benchmark, long-history stress result, peak RSS measurement, concurrent load measurement, or empirical defect-prediction validation is claimed for this branch.
 
-| ID | Required evaluation | Evidence now | What must be recorded on the target host/CI worker |
-| --- | --- | --- | --- |
-| QA-25 | ~1k LOC | Functional fixture tests only. | Wall time, peak RSS, static/Git durations, result status. |
-| QA-26 | ~10k LOC | File and byte limits are automated. | Same metrics and configured limits. |
-| QA-27 | ~100k LOC | File/byte/Git output bounds are automated. | Same metrics; identify any controlled skips. |
-| QA-28 | ~300k LOC | Intentionally unmeasured; may exceed the default 128 MiB source budget. | Same metrics; record bounded partial behavior rather than forcing completion. |
-| QA-29 | Static-analysis duration | Static stage timestamps/duration are persisted and tested. | Compare small/medium/large fixtures. |
-| QA-30 | Git-analysis duration | Git stage timestamps/duration are persisted and tested. | Compare shallow/short and long histories. |
-| QA-31 | Memory | Source and Git output are bounded; no native RSS measurement in this environment. | `/usr/bin/time -v` peak resident set size. |
-| QA-32 | Long Git history | Commit/output budget handling is automated. | Commit count, duration, and controlled-unavailable result when budget is crossed. |
-| QA-33 | Parallel analyses | Bounded run slots and independent static/Git stage execution are implemented. | Run at configured concurrency; record queue delay, RSS, and correctness. |
-| QA-34 | Limit behavior | File count/size, total source bytes, Git commit/output, and timeout branches are automated. | Confirm configuration is suitable for deployment; do not raise limits without repeating QA-25–33. |
+The direct services contain file/byte/commit/output bounds, but those are safety controls—not proof of capacity. For a target host, record wall time, peak RSS (`/usr/bin/time -v`), selected file count/bytes, commit count, configured limits, and whether the analysis returned a controlled limit response.
 
-Use the reproducible commands and fixture shapes in [`backend-performance.md`](backend-performance.md). Record hardware, OS, Go version, fixture commit count, flags, wall time, peak RSS, static duration, Git duration, and diagnostics. A result from another machine is not a release capacity guarantee.
+The risk engine is deterministic and explainable, but it is not validated as a bug predictor. Any future evaluation must use authorized repositories, frozen commit ranges, predeclared labels, precision/recall or review criteria, and a separate held-out evaluation set. It must distinguish static-only runs from runs with available Git metrics.
 
-## QA-35–QA-40: risk-model evaluation
+## Explicitly out of scope for this ledger
 
-The model is deterministic and explainable, but it is **not** a bug predictor validated against real-world defect history in this change. The risk report itself exposes formula, normalization, contributions, requested/effective weights, and limitations to support this evaluation.
-
-| ID | Required evaluation | Current evidence / limitation |
-| --- | --- | --- |
-| QA-35 | Run on representative real repositories. | Not executed here; privacy, repository selection, and an agreed ground truth are required. |
-| QA-36 | Compare rankings to commits/messages containing `fix`, `bug`, or `resolve`. | Not executed; keyword labels are only an imperfect proxy for defects. |
-| QA-37 | Review false positives. | Not measured; high structural/change risk does not prove a defect. |
-| QA-38 | Review false negatives. | Not measured; the model has no runtime, test, coverage, security, or semantic analysis input. |
-| QA-39 | Evaluate/tune formula weights. | Unit tests prove configured/effective-weight semantics, not empirical optimality. Tune only against a held-out labelled corpus. |
-| QA-40 | Publish findings and limitations. | Formula/normalization/limitations are persisted in reports; this ledger documents the missing empirical evaluation rather than fabricating it. |
-
-### Recommended empirical protocol
-
-1. Choose public or explicitly authorized repositories in the supported languages; freeze commit SHAs and record path scope/history range.
-2. Define labels before looking at scores. If commit-message heuristics (`fix`, `bug`, `resolve`) are used, retain the matched commit and manually sample labels because wording is noisy.
-3. For each analysis snapshot, compare top-*k* hotspots against subsequent labelled fixes. Record precision@k, recall@k, false positives, false negatives, and the review window.
-4. Keep projects/time windows separate for training/tuning versus final evaluation. Preserve the requested profile and effective profile so static-only runs are not compared as though Git metrics existed.
-5. Publish anonymized aggregate findings, dataset criteria, false-positive/negative examples where authorized, and the model limitations above. Do not derive claims of predictive accuracy from the deterministic unit fixtures.
+This phase-only version has no recursive discovery, durable analysis IDs/stages, queue/cancellation behavior, SQLite/restart handling, stored reports, dashboards, result filtering, comparison, or JSON/CSV export. QA IDs or evidence for those features belong to the complete-product branch, not here.

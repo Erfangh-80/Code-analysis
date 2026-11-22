@@ -1,4 +1,5 @@
-import type { AnalysisRunStatus, AnalysisStage, FileAnalysisStatus, RiskLevel, RiskMetric, StageStatus, SupportedLanguage } from "@/types/api";
+import type { BadgeVariant } from "@/components/ui/badge";
+import type { FileAnalysisStatus, RiskLevel, RiskMetric, SupportedLanguage } from "@/types/api";
 
 export const riskLevelLabels: Record<RiskLevel, string> = {
   low: "کم",
@@ -17,26 +18,32 @@ export const metricLabels: Record<RiskMetric, string> = {
   lines_of_code: "خطوط کد",
   max_function_length: "بیشترین طول تابع",
   max_class_length: "بیشترین طول کلاس",
-  git_churn: "Git Churn",
-  change_frequency: "تعداد تغییرات",
+  git_churn: "حجم تغییرات (Churn)",
+  change_frequency: "دفعات تغییر",
 };
 
-export const stageLabels: Record<AnalysisStage, string> = {
-  validation: "اعتبارسنجی",
-  discovery: "شناسایی فایل‌ها",
-  static_analysis: "تحلیل ایستا",
-  git_analysis: "تحلیل تاریخچهٔ Git",
-  risk_scoring: "محاسبهٔ ریسک",
+/** Badge colors keep status/language/risk readable without relying on color alone. */
+export const languageBadgeVariants: Record<SupportedLanguage, BadgeVariant> = {
+  go: "info",
+  javascript: "warning",
+  python: "success",
+  unknown: "muted",
 };
 
-export const stageStatusLabels: Record<StageStatus, string> = {
-  pending: "در انتظار",
-  running: "در حال اجرا",
-  completed: "تکمیل‌شده",
-  unavailable: "در دسترس نیست",
-  failed: "ناموفق",
-  cancelled: "لغوشده",
-  skipped: "رد شده",
+export const statusBadgeVariants: Record<FileAnalysisStatus, BadgeVariant> = {
+  analyzed: "success",
+  empty: "muted",
+  no_executable_code: "muted",
+  fallback: "warning",
+  parse_error: "destructive",
+  unsupported: "warning",
+  read_error: "destructive",
+};
+
+export const riskLevelBadgeVariants: Record<RiskLevel, BadgeVariant> = {
+  low: "success",
+  medium: "warning",
+  high: "destructive",
 };
 
 export const fileStatusLabels: Record<FileAnalysisStatus, string> = {
@@ -49,24 +56,11 @@ export const fileStatusLabels: Record<FileAnalysisStatus, string> = {
   read_error: "خطای خواندن",
 };
 
-export function isTerminalAnalysisStatus(status: AnalysisRunStatus) {
-  return status === "completed" || status === "failed" || status === "cancelled";
-}
-
 export function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined) {
     return "—";
   }
   return new Intl.NumberFormat("fa-IR").format(value);
-}
-
-export function toDateTimeLocal(value?: string | null) {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 export function fromDateTimeLocal(value: string) {

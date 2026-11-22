@@ -1,173 +1,199 @@
-# Local API Contract — v1
+# Local Core API Contract — v1, phases 1–4
 
-**Status:** implemented backend surface through BE-92. The embedded OpenAPI document at [`backend/internal/api/openapi.yaml`](../backend/internal/api/openapi.yaml) is the machine-readable source of truth.
+**Status:** implemented direct local API. The machine-readable source of truth is [`backend/internal/api/openapi.yaml`](../backend/internal/api/openapi.yaml).
 
-**Base URL:** `http://127.0.0.1:<configured-port>/api/v1`
+**Base URL:** `http://127.0.0.1:<port>/api/v1`
 
-The service is local-only. Every accepted path identifies a directory visible to the Go backend process on the same machine. It never accepts a Git URL, uploads source, executes project code, or contacts a remote repository service.
+This is not a durable-analysis API. A request returns a direct analytical result and the service retains no saved analysis runs, reports, exports, or result-query pages.
 
-## Conventions
+## Conventions and safety
 
-- Requests and JSON responses use `application/json; charset=utf-8`.
-- Timestamps are RFC 3339 UTC strings; analysis IDs are opaque.
-- Unknown fields in write requests are rejected.
-- Result paths are slash-normalized **project-relative** display data. Absolute backend paths, Git roots, and local database paths are never serialized.
-- Standard errors use `{ "error": { "code": "...", "message": "..." } }`; messages are safe for display and do not disclose host paths.
-- List pagination uses one-based `page` and `pageSize` (defaults: `1`, `50`; maximum `200`).
+- Requests and JSON responses use `application/json; charset=utf-8` unless noted.
+- Unknown fields in POST payloads are rejected.
+- Standard errors are `{ "error": { "code": "...", "message": "..." } }`. Messages are safe for display and do not disclose source text, absolute host paths, or Git command output.
+- All returned source/Git paths are slash-normalized project/worktree-relative display paths.
+- `400 VALIDATION_ERROR` denotes malformed, unsafe, inaccessible, or invalid analytical input. `413 RESOURCE_LIMIT_EXCEEDED` denotes a configured static/Git resource bound. `405 METHOD_NOT_ALLOWED` includes `Allow`.
+- The server accepts only local absolute directories below its configured `-allowed-root` policy. It never accepts repository URLs or source uploads, clones a repository, executes target code, or modifies a target worktree.
+- Development CORS allows `GET`, `POST`, and `OPTIONS` without credentials when an `Origin` is sent. Restrict it before exposing this service beyond local development.
 
-## Direct analytical endpoints
+## Routes
 
-These existing synchronous endpoints remain available and do not create persisted runs:
+| Method | Route | Direct result |
+| --- | --- | --- |
+| `GET` | `/health` | `{ "status": "ok", "version": "0.1.0-core" }` |
+| `GET` | `/openapi.yaml` | Embedded OpenAPI 3.1 YAML (`application/yaml`) |
+| `POST` | `/static-analysis` | Static file and module analysis |
+| `GET` | `/static-analysis/failures` | Safe process-local parser/read failures |
+| `POST` | `/git-analysis` | Local worktree history facts |
+| `POST` | `/risk-analysis` | Explainable ranked Hotspot report |
+| `GET` | `/swagger/` | Local Swagger UI assets and page |
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /health` | Service/version health response. |
-| `GET /openapi.yaml` | Embedded OpenAPI 3.1 document. |
-| `POST /static-analysis` | Safely read selected relative files below a supplied absolute `rootPath`; does not execute source. |
-| `GET /static-analysis/failures` | Process-local safe metadata for static read/parser failures. |
-| `POST /git-analysis` | Read-only facts for an absolute local Git worktree and optional inclusive history range. |
-| `POST /risk-analysis` | Deterministic hotspot scoring from supplied analytical metrics. |
+Routes beginning with `/analyses` are intentionally not implemented on this branch.
 
-Static support is Go, JavaScript (`.js`, `.mjs`, `.cjs`), and Python. The delivered `risk-v1` model uses lines of code, maximum function length, maximum class length, Git churn, and change frequency. It does **not** calculate cyclomatic complexity, critical bands, runtime behavior, coverage, or vulnerability findings.
+## `POST /static-analysis`
 
-## Persisted asynchronous analyses
-
-### `POST /analyses/validate-path`
-
-Performs the same canonical local-directory and configured-root check used by analysis start, but does **not** queue, persist, scan, or execute anything. The request is deliberately limited to the local `projectPath` input:
+Analyze files below one local root. Supported extensions are Go (`.go`), JavaScript (`.js`, `.mjs`, `.cjs`), and Python (`.py`).
 
 ```json
-{ "projectPath": "/absolute/path/on/backend-host/project" }
+{ "rootPath": "/absolute/path/to/project" }
 ```
 
-A successful response is `{ "valid": true }`. Invalid, inaccessible, relative, or unauthorized paths return `400 VALIDATION_ERROR` with a display-safe generic message; no absolute host path is returned. The endpoint is a UI preflight, not a reservation: `POST /analyses` validates the path again before it creates a run, so an intervening filesystem or policy change remains safe.
-
-### `POST /analyses`
-
-Starts a bounded asynchronous local analysis and returns `202 Accepted`.
+`rootPath` must be an accessible, allowed absolute directory. `files` is optional: with explicit entries, each must be non-empty, relative, and resolve below the root; when omitted or empty, the server runs a bounded discovery below the root that collects supported sources in sorted order, skips `.git`/VCS metadata, dependency vendors (`node_modules`, `vendor`), build output (`dist`, `build`, `out`, `target`, …) and cache directories, never follows directory symlinks, and skips file symlinks resolving outside the root.
 
 ```json
 {
-  "projectPath": "/absolute/path/on/backend-host/project",
+  "rootPath": "/absolute/path/to/project",
+  "files": [
+    "internal/service/worker.go",
+    "web/app.js",
+    "scripts/report.py"
+  ]
+}
+```
+
+If discovery finds more supported files than the configured `max-files` limit, the whole request fails with `413 RESOURCE_LIMIT_EXCEEDED` rather than silently truncating the analyzed set. A root without supported sources returns `200` with empty `files` and `modules`.
+
+A successful response is a `BatchAnalysis` object:
+
+```json
+{
+  "files": [
+    {
+      "path": "internal/service/worker.go",
+      "language": "go",
+      "status": "analyzed",
+      "usedFallback": false,
+      "metrics": {
+        "linesOfCode": 42,
+        "functionCount": 3,
+        "classCount": 0,
+        "functionLength": { "max": 15, "total": 29 },
+        "classLength": { "max": 0, "total": 0 }
+      },
+      "functions": [],
+      "classes": [],
+      "diagnostics": []
+    }
+  ],
+  "modules": [
+    {
+      "path": "internal/service",
+      "fileCount": 1,
+      "failedFileCount": 0,
+      "metrics": {
+        "linesOfCode": 42,
+        "functionCount": 3,
+        "classCount": 0,
+        "functionLength": { "max": 15, "total": 29 },
+        "classLength": { "max": 0, "total": 0 }
+      }
+    }
+  ]
+}
+```
+
+`status` is one of `analyzed`, `empty`, `no_executable_code`, `fallback`, `parse_error`, `unsupported`, or `read_error`. A file-level failure stays explicit; it does not cause the server to fabricate successful metrics for it or discard unrelated selected files.
+
+## `GET /static-analysis/failures`
+
+Returns only safe failure metadata captured in this process:
+
+```json
+{ "items": [{ "path": "broken.js", "language": "javascript", "status": "parse_error", "usedFallback": false, "diagnostics": [], "recordedAt": "2026-11-14T09:00:00Z" }] }
+```
+
+It contains no source content and is neither a persisted audit log nor a complete project report.
+
+## `POST /git-analysis`
+
+Analyze the read-only history of one existing local Git worktree. Omit `history` to analyze all commits reachable from `HEAD`; present bounds are inclusive RFC 3339 timestamps.
+
+```json
+{
+  "repositoryPath": "/absolute/path/to/worktree",
   "history": {
     "from": "2026-01-01T00:00:00Z",
     "to": "2026-12-31T23:59:59Z"
-  },
-  "profile": {
-    "version": "risk-v1",
-    "weights": {
-      "lines_of_code": 0.15,
-      "max_function_length": 0.25,
-      "max_class_length": 0.10,
-      "git_churn": 0.25,
-      "change_frequency": 0.25
-    },
-    "bands": { "lowMax": 34, "mediumMax": 64 }
   }
 }
 ```
 
-`projectPath` is the only analysis location input. It must be an accessible absolute directory after canonicalization. A Git worktree is optional: a non-Git project still receives discovery, static analysis, and static-only risk scoring. Invalid history ranges and invalid custom profiles are rejected before queuing.
+A successful response includes `commitCount`, echoed `history`, `files`, and `diagnostics`. Each file has project-relative `path`, `previousPaths`, `deleted`, `gitChurn`, `changeFrequency`, `authorCount`, optional `firstChangedAt`/`lastChangedAt`, `changeConcentration`, and `changeDispersion`.
 
-The response shape is:
+A missing worktree or invalid range returns `400 VALIDATION_ERROR`; a resource limit returns `413 RESOURCE_LIMIT_EXCEEDED`. Git operational failures that are not client-input errors return `500 GIT_HISTORY_ERROR`. Empty or shallow history is represented by successful response diagnostics where analysis can continue.
+
+## `POST /risk-analysis`
+
+The scoring engine accepts collected analytical facts; it does not read source or Git itself. With no `availableMetrics`, each file must include all five `metrics` properties. With an explicit availability set, each file must provide at least the selected metric properties.
 
 ```json
 {
-  "analysis": {
-    "id": "analysis_...",
-    "status": "queued",
-    "createdAt": "2026-11-14T09:00:00Z",
-    "history": { "from": null, "to": null },
-    "stages": [
-      { "stage": "validation", "status": "pending", "progress": { "total": 0, "completed": 0 } }
-    ],
-    "progress": {
-      "filesDiscovered": 0,
-      "filesEligible": 0,
-      "filesAnalyzed": 0,
-      "filesWithErrors": 0,
-      "commitsTotal": 0,
-      "commitsScanned": 0,
-      "percent": 0
-    },
-    "diagnostics": []
-  }
+  "files": [
+    {
+      "path": "internal/api/server.go",
+      "metrics": {
+        "linesOfCode": 240,
+        "maxFunctionLength": 55,
+        "maxClassLength": 0,
+        "gitChurn": 180,
+        "changeFrequency": 12
+      }
+    }
+  ],
+  "availableMetrics": [
+    "lines_of_code",
+    "max_function_length",
+    "max_class_length",
+    "git_churn",
+    "change_frequency"
+  ]
 }
 ```
 
-A local SQLite unique active-scope constraint prevents concurrent `queued` or `running` analyses of the same Git worktree (or the same canonical non-Git project). The API returns `409 ANALYSIS_ALREADY_RUNNING` for that conflict. Completed, failed, and cancelled projects may be analyzed again.
+Paths must be unique non-empty repository-relative paths. All metric values are non-negative integers. Supported metric IDs are:
 
-### `GET /analyses`
+- `lines_of_code`
+- `max_function_length`
+- `max_class_length`
+- `git_churn`
+- `change_frequency`
 
-Lists persisted lifecycle records, newest first. Optional query parameters:
+The optional `profile` has a non-empty version, supported non-negative weights that sum to `1.0`, and `bands` satisfying `0 <= lowMax < mediumMax < 100`. The optional `heatmap` has distinct available `xMetric` and `yMetric` values. Invalid profile/input/heatmap configurations return `400 VALIDATION_ERROR`.
 
-- `status`: one of `queued`, `running`, `completed`, `failed`, `cancelled`
-- `page`: positive integer
-- `pageSize`: integer `1..200`
+### Default model and response guarantees
 
-The response is `{ "items": [...], "page": 1, "pageSize": 50, "totalItems": 0 }`.
+The default `risk-v1` weights are LOC `0.15`, max function length `0.25`, max class length `0.10`, Git churn `0.25`, and change frequency `0.25`; bands are low `0–34`, medium `35–64`, high `65–100`.
 
-### `GET /analyses/{analysisId}`
+For the current request's file population, the engine caps each available metric at its nearest-rank 95th percentile and computes:
 
-Returns an analysis lifecycle snapshot. Overall `status` is restricted to:
+```text
+round(100 × Σ(effectiveWeight(metric) × normalized(metric, file)))
+```
 
-- `queued`
-- `running`
-- `completed`
-- `failed`
-- `cancelled`
+When `availableMetrics` excludes a metric, the engine records it in `unavailableMetrics` and renormalizes positive requested weights across only available metrics. It does not treat an unavailable Git analysis as observed zero Git activity.
 
-`currentStage` is operational detail (`validation`, `discovery`, `analysis`, `risk_scoring`, or `finalizing`). The independent stage array records `validation`, `discovery`, `static_analysis`, `git_analysis`, and `risk_scoring`, each with a status of `pending`, `running`, `completed`, `unavailable`, `failed`, `cancelled`, or `skipped`.
+The response includes `profile` (effective), `requestedProfile`, available/unavailable metrics, formula, normalization description, limitations, ranked `files`, aggregate `modules`, and backend-prepared `heatmap` cells. Each file contribution identifies the raw value, normalization cap, normalized value, effective weight, and weighted contribution.
 
-Static and Git work run independently in parallel when a Git worktree is available. Progress supplies file and commit counts plus a monotonic percentage. Per-file read/parser failures remain in the static artifact and are represented by safe run diagnostics without discarding successful files.
+## HTTP safety and resource behavior
 
-### `POST /analyses/{analysisId}/cancel`
+The production server configures these defaults, which can be tightened at startup:
 
-Requests cooperative cancellation and returns `202`. Active work checks cancellation at discovery, file, and Git command boundaries. A cancelled run retains safe stage/progress/diagnostic information but is never returned as a completed report. A terminal or unknown run returns `409` or `404` respectively.
+| Resource | Default |
+| --- | ---: |
+| Static request file count | 10,000 |
+| Bytes per source file | 2 MiB |
+| Total source bytes | 128 MiB |
+| Git commits | 20,000 |
+| Git output retained per command | 16 MiB |
 
-### Completed result views
+`/static-analysis` reports a request-wide file-count excess as `413`. Per-file static read/parse/resource problems are returned as safe file diagnostics so that valid selected files remain useful. Git bounds return `413` rather than retaining unbounded command output.
 
-Every endpoint in this section reads the immutable stored report and returns `409` for a non-completed analysis and `404` for an unknown analysis. No endpoint recalculates static, Git, score, module, or heatmap values.
+## OpenAPI and Swagger
 
-| Endpoint | Result |
-| --- | --- |
-| `GET /analyses/{analysisId}/summary` | Completed summary, risk-level counts, module count, Git-artifact flag, and availability/effective-profile metadata. |
-| `GET /analyses/{analysisId}/hotspots` | Paginated scored hotspots. |
-| `GET /analyses/{analysisId}/files` | Paginated static-file records joined with optional Git and risk records. |
-| `GET /analyses/{analysisId}/files/detail?path=project/relative.go` | One exact project-relative file record. The path must be non-empty, slash-normalized, non-absolute, and non-escaping. |
-| `GET /analyses/{analysisId}/modules` | Static module aggregates and optional risk-ranked module aggregates. |
-| `GET /analyses/{analysisId}/heatmap` | Saved backend-prepared heatmap axes and cells. It does not accept alternate axes because that would imply a recalculation. |
-| `GET /analyses/{analysisId}/report` | Complete raw immutable report, including all persisted artifacts. |
+Download the complete typed contract with:
 
-`/hotspots` and `/files` accept one-based `page` and `pageSize` (`1..200`), optional case-insensitive path query `q`, optional project-relative `module` prefix, repeated `riskLevel` values, a supported `sort`, and `direction=asc|desc`. `/files` additionally accepts repeated `language` and `analysisStatus` values plus `minScore`/`maxScore` integers (`0..100`, with `minScore <= maxScore`). Score-bound filtering excludes files with no saved risk score rather than treating missing data as zero. The server rejects unknown, repeated scalar, malformed, out-of-range, or endpoint-incompatible query parameters with `400 VALIDATION_ERROR`. Sorting has deterministic path ties.
+```bash
+curl http://127.0.0.1:8080/api/v1/openapi.yaml
+```
 
-### `GET /analyses/{analysisId}/export?format=json|csv`
-
-Exports a completed report with an attachment disposition:
-
-- `format=json` returns the same immutable report JSON as the report endpoint.
-- `format=csv` returns one safe row per discovered static file with actual v1 columns: path, language, static status, risk score/level when available, static metrics, and Git churn/frequency when available.
-
-CSV text cells that begin with `=`, `+`, `-`, or `@` are prefixed to prevent spreadsheet formula interpretation. Export never contains an absolute host path or source contents.
-
-## Browser access and security headers
-
-During the current development phase, the local API permits cross-origin browser requests from every origin. Requests with an `Origin` header receive `Access-Control-Allow-Origin: *`, and the permitted methods are `GET`, `POST`, and `OPTIONS` with the `Content-Type` request header. CORS credentials are not enabled.
-
-This permissive policy is temporary and must be replaced with a same-origin or explicit trusted-origin policy before a public release. Responses continue to include `nosniff`, frame/referrer/cross-origin-resource protections, a restrictive frame/base/object CSP, and `Cache-Control: no-store`.
-
-## Scope, discovery, and Git availability
-
-Discovery canonicalizes the selected local directory and considers only regular, supported, non-binary files inside it. It excludes unsafe/out-of-project symlinks, deleted Git paths, `.git`, dependency/build/cache directories, and ignored files. A Git worktree uses `git ls-files --cached --others --exclude-standard`; a non-Git project uses the independent `.gitignore` matcher. No project command, hook, build, test, import, or script is run.
-
-If `projectPath` lies below a Git worktree, static discovery remains inside that selected directory. Git history runs against the enclosing Git root with a repository-relative path filter; emitted paths are rebased to the selected project.
-
-Git history failures and missing scoped history do not fail a useful static analysis. The Git stage becomes `unavailable` with diagnostics, the report retains static artifacts, and scoring excludes Git churn and change frequency rather than inventing zero values. The report records both requested and effective risk profiles and the available/unavailable metric identities. When static-only default scoring applies, effective weights are renormalized to LOC `0.30`, maximum function length `0.50`, and maximum class length `0.20`.
-
-## Persistence and restart behavior
-
-SQLite is the primary `RunStore`. It persists lifecycle state, stage snapshots, progress, safe diagnostics, requested profile/history, completed summaries, calculated artifacts, and the immutable final report. Persisting a report and moving its run to `completed` occur atomically. On startup, an interrupted `queued` or `running` record is changed to `failed` with a `BACKEND_RESTARTED` diagnostic; analysis is not silently resumed.
-
-## Deferred API surface
-
-Deletion, named profile management, custom recomputation of saved heatmap axes, and frontend dashboard routes are not implemented in this increment and must not be inferred from this contract. The OpenAPI document lists only the implemented HTTP endpoints above.
+After starting the backend, local Swagger UI is available at `http://127.0.0.1:8080/swagger/`. Its assets and specification are served by the backend rather than fetched from an external documentation service.

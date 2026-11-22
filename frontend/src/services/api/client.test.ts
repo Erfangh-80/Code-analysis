@@ -14,7 +14,7 @@ describe("apiRequest", () => {
       vi.fn(async () => new Response(JSON.stringify({ error: { code: "VALIDATION_ERROR", message: "مسیر معتبر نیست." } }), { status: 400 })),
     );
 
-    await expect(apiRequest("/analyses")).rejects.toMatchObject({
+    await expect(apiRequest("/static-analysis")).rejects.toMatchObject({
       status: 400,
       code: "VALIDATION_ERROR",
       message: "مسیر معتبر نیست.",
@@ -49,9 +49,10 @@ describe("apiRequest", () => {
       vi.fn(async () =>
         new Response(
           JSON.stringify({
-            git: { previousPaths: null },
-            analysis: { functions: null, diagnostics: null },
-            risk: { contributions: null },
+            files: null,
+            modules: null,
+            git: { previousPaths: null, diagnostics: null },
+            risk: { contributions: null, limitations: null },
           }),
           { status: 200 },
         ),
@@ -59,15 +60,18 @@ describe("apiRequest", () => {
     );
 
     const detail = await apiRequest<{
-      git: { previousPaths: string[] };
-      analysis: { functions: unknown[]; diagnostics: unknown[] };
-      risk: { contributions: unknown[] };
-    }>("/analyses/run/files/detail");
+      files: unknown[];
+      modules: unknown[];
+      git: { previousPaths: string[]; diagnostics: unknown[] };
+      risk: { contributions: unknown[]; limitations: unknown[] };
+    }>("/risk-analysis");
 
+    expect(detail.files).toEqual([]);
+    expect(detail.modules).toEqual([]);
     expect(detail.git.previousPaths).toEqual([]);
-    expect(detail.analysis.functions).toEqual([]);
-    expect(detail.analysis.diagnostics).toEqual([]);
+    expect(detail.git.diagnostics).toEqual([]);
     expect(detail.risk.contributions).toEqual([]);
+    expect(detail.risk.limitations).toEqual([]);
   });
 
   it("turns an unreachable local service into a retryable API error", async () => {

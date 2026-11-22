@@ -1,16 +1,4 @@
-export type AnalysisRunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
-
-export type AnalysisStage = "validation" | "discovery" | "static_analysis" | "git_analysis" | "risk_scoring";
-
-export type StageStatus =
-  | "pending"
-  | "running"
-  | "completed"
-  | "unavailable"
-  | "failed"
-  | "cancelled"
-  | "skipped";
-
+export type SupportedLanguage = "go" | "javascript" | "python" | "unknown";
 export type FileAnalysisStatus =
   | "analyzed"
   | "empty"
@@ -19,8 +7,6 @@ export type FileAnalysisStatus =
   | "parse_error"
   | "unsupported"
   | "read_error";
-
-export type SupportedLanguage = "go" | "javascript" | "python" | "unknown";
 export type RiskLevel = "low" | "medium" | "high";
 export type RiskMetric =
   | "lines_of_code"
@@ -46,119 +32,6 @@ export interface GitHistoryRange {
   to?: string | null;
 }
 
-export interface RiskBands {
-  lowMax: number;
-  mediumMax: number;
-}
-
-export interface RiskProfile {
-  version: string;
-  weights: Partial<Record<RiskMetric, number>>;
-  bands: RiskBands;
-}
-
-export interface PathValidationResponse {
-  valid: true;
-}
-
-export interface AnalysisRequest {
-  projectPath: string;
-  history?: GitHistoryRange;
-  profile?: RiskProfile;
-}
-
-export interface StageProgress {
-  total: number;
-  completed: number;
-}
-
-export interface StageSnapshot {
-  stage: AnalysisStage;
-  status: StageStatus;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  durationMillis?: number;
-  progress: StageProgress;
-}
-
-export interface AnalysisProgress {
-  filesDiscovered: number;
-  filesEligible: number;
-  filesAnalyzed: number;
-  filesWithErrors: number;
-  commitsTotal: number;
-  commitsScanned: number;
-  percent: number;
-}
-
-export interface AnalysisDiagnostic {
-  stage: AnalysisStage;
-  path?: string;
-  code: string;
-  severity: "warning" | "error";
-  message: string;
-  recordedAt: string;
-}
-
-export interface AnalysisSummary {
-  filesDiscovered: number;
-  filesAnalyzed: number;
-  filesWithErrors: number;
-  gitStatus: StageStatus;
-  riskStatus: StageStatus;
-  scoredFiles: number;
-  unscoredFiles: number;
-}
-
-export interface AnalysisRun {
-  id: string;
-  status: AnalysisRunStatus;
-  currentStage?: AnalysisStage | null;
-  createdAt: string;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  history: GitHistoryRange;
-  stages: StageSnapshot[];
-  progress: AnalysisProgress;
-  diagnostics: AnalysisDiagnostic[];
-  summary?: AnalysisSummary;
-}
-
-export interface AnalysisEnvelope {
-  analysis: AnalysisRun;
-}
-
-export interface AnalysisPage {
-  items: AnalysisRun[];
-  page: number;
-  pageSize: number;
-  totalItems: number;
-}
-
-export type AnalysisStartResponse = AnalysisEnvelope;
-
-export interface RiskLevelCounts {
-  low: number;
-  medium: number;
-  high: number;
-}
-
-export interface RiskCoverage {
-  availableMetrics: RiskMetric[];
-  unavailableMetrics: RiskMetric[];
-  requestedProfile: RiskProfile;
-  effectiveProfile: RiskProfile;
-}
-
-export interface AnalysisResultSummary {
-  analysis: AnalysisRun;
-  summary: AnalysisSummary;
-  riskLevels: RiskLevelCounts;
-  moduleCount: number;
-  riskCoverage?: RiskCoverage;
-  hasGitArtifact: boolean;
-}
-
 export interface LengthSummary {
   max: number;
   total: number;
@@ -172,18 +45,18 @@ export interface Metrics {
   classLength: LengthSummary;
 }
 
+export interface Diagnostic {
+  code: string;
+  message: string;
+  severity: "warning" | "error";
+}
+
 export interface Declaration {
   name: string;
   kind: "function" | "method" | "class";
   startLine: number;
   endLine: number;
   length: number;
-}
-
-export interface Diagnostic {
-  code: string;
-  message: string;
-  severity: "warning" | "error";
 }
 
 export interface FileAnalysis {
@@ -204,6 +77,17 @@ export interface ModuleAnalysis {
   metrics: Metrics;
 }
 
+export interface BatchAnalysis {
+  files: FileAnalysis[];
+  modules: ModuleAnalysis[];
+}
+
+export interface StaticAnalysisRequest {
+  rootPath: string;
+  /** Omit to let the backend discover supported sources below rootPath. */
+  files?: string[];
+}
+
 export interface GitFileMetrics {
   path: string;
   previousPaths: string[];
@@ -217,12 +101,40 @@ export interface GitFileMetrics {
   changeDispersion: number;
 }
 
+export interface GitAnalysisRequest {
+  repositoryPath: string;
+  history?: GitHistoryRange;
+}
+
+export interface GitAnalysisReport {
+  commitCount: number;
+  history: GitHistoryRange;
+  files: GitFileMetrics[];
+  diagnostics: Diagnostic[];
+}
+
 export interface HotspotMetrics {
-  linesOfCode?: number;
-  maxFunctionLength?: number;
-  maxClassLength?: number;
-  gitChurn?: number;
-  changeFrequency?: number;
+  linesOfCode: number;
+  maxFunctionLength: number;
+  maxClassLength: number;
+  gitChurn: number;
+  changeFrequency: number;
+}
+
+export interface HotspotInput {
+  path: string;
+  metrics: HotspotMetrics;
+}
+
+export interface RiskBands {
+  lowMax: number;
+  mediumMax: number;
+}
+
+export interface RiskProfile {
+  version: string;
+  weights: Partial<Record<RiskMetric, number>>;
+  bands: RiskBands;
 }
 
 export interface RiskContribution {
@@ -268,38 +180,10 @@ export interface HeatmapData {
   cells: HeatmapCell[];
 }
 
-export interface AnalysisFileResult {
-  analysis: FileAnalysis;
-  git?: GitFileMetrics;
-  risk?: Hotspot;
-}
-
-export interface PageResult {
-  page: number;
-  pageSize: number;
-  totalItems: number;
-  riskCoverage?: RiskCoverage;
-}
-
-export interface AnalysisFilePage extends PageResult {
-  items: AnalysisFileResult[];
-}
-
-export interface AnalysisHotspotPage extends PageResult {
-  items: Hotspot[];
-}
-
-export interface AnalysisModules {
-  static: ModuleAnalysis[];
-  risk: ModuleHotspot[];
-  riskCoverage?: RiskCoverage;
-}
-
-export interface GitAnalysisReport {
-  commitCount: number;
-  history: GitHistoryRange;
-  files: GitFileMetrics[];
-  diagnostics: Diagnostic[];
+export interface RiskAnalysisRequest {
+  files: HotspotInput[];
+  profile?: RiskProfile;
+  availableMetrics?: RiskMetric[];
 }
 
 export interface RiskAnalysisReport {
@@ -313,41 +197,4 @@ export interface RiskAnalysisReport {
   files: Hotspot[];
   modules: ModuleHotspot[];
   heatmap: HeatmapData;
-}
-
-export interface BatchAnalysis {
-  files: FileAnalysis[];
-  modules: ModuleAnalysis[];
-}
-
-export interface AnalysisArtifacts {
-  static?: BatchAnalysis;
-  git?: GitAnalysisReport;
-  risk?: RiskAnalysisReport;
-  riskCoverage?: RiskCoverage;
-}
-
-export interface AnalysisReport {
-  analysis: AnalysisRun;
-  artifacts: AnalysisArtifacts;
-}
-
-export interface AnalysisListParams {
-  page?: number;
-  pageSize?: number;
-  status?: AnalysisRunStatus;
-}
-
-export interface ResultListParams {
-  page?: number;
-  pageSize?: number;
-  q?: string;
-  module?: string;
-  riskLevel?: RiskLevel[];
-  language?: SupportedLanguage[];
-  analysisStatus?: FileAnalysisStatus[];
-  minScore?: number;
-  maxScore?: number;
-  sort?: string;
-  direction?: "asc" | "desc";
 }

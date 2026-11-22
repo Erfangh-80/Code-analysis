@@ -1,18 +1,15 @@
 openapi: 3.1.0
 info:
-  title: Code Risk Analyzer Local API
-  version: 0.1.0
+  title: Code Risk Analyzer Core API
+  version: 0.1.0-core
   license:
     name: License not selected
     url: https://github.com/Erfangh-80/Code-analysis
   description: |
-    Local-only API for Code Risk Analyzer. Static analysis reads source files
-    and Git analysis reads history from paths on the same machine as this Go
-    service. Risk analysis scores only their supplied analytical facts. The API
-    never accepts repository source content and never executes files it reads.
-    During development, browser access is permitted from every origin without
-    credentials. This temporary permissive CORS policy must be restricted before
-    any public release.
+    Local-only API for the first four project phases: requirements-backed static
+    analysis, Git-history facts, and explainable hotspot scoring. Every path is
+    resolved on the same machine as this Go service. Source code is never
+    uploaded or executed.
 servers:
   - url: http://127.0.0.1:8080/api/v1
     description: Default local-only server
@@ -30,19 +27,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
         '405':
-          description: Method not allowed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/MethodNotAllowed'
   /static-analysis:
     post:
-      summary: Analyze selected local source files statically
+      summary: Analyze local source files below one root directory
       operationId: analyzeStaticFiles
       description: |
-        Reads only the relative files named under rootPath. Supported languages
-        are Go (.go), JavaScript (.js, .mjs, .cjs), and Python (.py). Parser
-        errors are returned honestly; a fallback result is flagged and recorded.
+        Reads source files below an absolute rootPath. When files is omitted or
+        empty, the server performs a bounded discovery of supported Go,
+        JavaScript, and Python sources below rootPath, skipping VCS metadata,
+        dependency vendors, and build output directories; explicit relative
+        paths restrict analysis to exactly those files. The target project is
+        never built, imported, tested, or executed.
       requestBody:
         required: true
         content:
@@ -51,30 +47,28 @@ paths:
               $ref: '#/components/schemas/StaticAnalysisRequest'
       responses:
         '200':
-          description: Real static metrics and directory-level aggregations
+          description: Actual static metrics and module aggregates
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BatchAnalysis'
         '400':
-          description: Invalid root path, unsafe relative file path, or malformed request
+          $ref: '#/components/responses/ValidationError'
+        '413':
+          description: A configured local resource limit was exceeded
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '405':
-          description: Method not allowed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/MethodNotAllowed'
   /static-analysis/failures:
     get:
-      summary: List files with parser or local-read failures
+      summary: List safe static-analysis failures observed by this process
       operationId: listStaticAnalysisFailures
       responses:
         '200':
-          description: Safe metadata for failures observed by this local process
+          description: Parser/read failure metadata without source contents
           content:
             application/json:
               schema:
@@ -86,19 +80,14 @@ paths:
                     items:
                       $ref: '#/components/schemas/FailureRecord'
         '405':
-          description: Method not allowed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/MethodNotAllowed'
   /git-analysis:
     post:
-      summary: Analyze local Git history
+      summary: Analyze existing local Git history
       operationId: analyzeGitHistory
       description: |
-        Reads commit metadata and diffs from an existing local Git worktree.
-        Source code is never executed and the repository is never changed.
-        Omit history bounds to analyze all commits reachable from HEAD.
+        Uses read-only Git history commands against an existing local worktree.
+        Omit history bounds to inspect all commits reachable from HEAD.
       requestBody:
         required: true
         content:
@@ -107,38 +96,35 @@ paths:
               $ref: '#/components/schemas/GitAnalysisRequest'
       responses:
         '200':
-          description: Per-file Git churn, change frequency, author, time-range, rename, deletion, concentration, and dispersion facts
+          description: Per-file change history metrics, including rename/deletion facts
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/GitAnalysisReport'
         '400':
-          description: Invalid local repository path or history range
+          $ref: '#/components/responses/ValidationError'
+        '413':
+          description: A configured Git resource limit was exceeded
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
-          description: Local Git history could not be read completely
+          description: The local Git history could not be analyzed completely
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '405':
-          description: Method not allowed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/MethodNotAllowed'
   /risk-analysis:
     post:
-      summary: Calculate explainable risk hotspots from analytical metrics
+      summary: Calculate explainable hotspot scores from static and Git facts
       operationId: calculateRiskHotspots
       description: |
-        Scores file metrics using a local, deterministic risk profile. The caller
-        supplies metrics previously obtained from the local static and Git
-        analyzers; this endpoint does not execute source code or contact a
-        remote service. Omit profile to use risk-v1 defaults.
+        Scores caller-supplied analytical facts deterministically. It does not
+        read source, invoke Git, execute a project, or contact a remote service.
+        Omit profile to use the versioned risk-v1 defaults.
       requestBody:
         required: true
         content:
@@ -147,957 +133,152 @@ paths:
               $ref: '#/components/schemas/RiskAnalysisRequest'
       responses:
         '200':
-          description: Ranked file hotspots, module aggregates, score contributions, and heatmap cells
+          description: Ranked hotspots, metric contributions, modules, and heatmap cells
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RiskAnalysisReport'
         '400':
-          description: Invalid metrics, profile weights, risk bands, or heatmap axes
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ValidationError'
         '405':
-          description: Method not allowed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses:
-    post:
-      summary: Start a local asynchronous project analysis
-      operationId: startAnalysis
-      description: |
-        Accepts only an absolute projectPath visible to this local backend. A Git
-        worktree is optional: static analysis still runs when Git is unavailable.
-        The target project is never executed or modified.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnalysisRequest'
-      responses:
-        '202':
-          description: Analysis was queued locally
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisEnvelope'
-        '400':
-          description: Invalid or inaccessible local project path, history, or profile
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: An analysis is already active for this local project or repository
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-    get:
-      summary: List locally persisted analyses
-      operationId: listAnalyses
-      parameters:
-        - $ref: '#/components/parameters/AnalysisStatusFilter'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-      responses:
-        '200':
-          description: Persisted local analysis lifecycle records
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisPage'
-        '400':
-          description: Invalid status or pagination query
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/validate-path:
-    post:
-      summary: Validate an accessible local project path before queueing analysis
-      operationId: validateAnalysisProjectPath
-      description: |
-        Checks only that projectPath is an absolute accessible directory within
-        the local backend's configured analysis roots. It never queues a run,
-        reads source files, returns an absolute path, or executes project code.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PathValidationRequest'
-      responses:
-        '200':
-          description: The local path is eligible to be submitted for analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PathValidationResponse'
-        '400':
-          description: Invalid, inaccessible, or unauthorized local path
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '405':
-          description: Method not allowed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}:
-    get:
-      summary: Get analysis status, stages, progress, and safe diagnostics
-      operationId: getAnalysis
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-      responses:
-        '200':
-          description: Analysis lifecycle snapshot; absolute local paths are never returned
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisEnvelope'
-        '400':
-          description: This endpoint accepts no query parameters
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Unknown analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}/cancel:
-    post:
-      summary: Cooperatively cancel an active local analysis
-      operationId: cancelAnalysis
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-      responses:
-        '202':
-          description: Cancellation was requested
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisEnvelope'
-        '400':
-          description: This endpoint accepts no query parameters
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Unknown analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Analysis is already terminal
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}/summary:
-    get:
-      summary: Get a completed analysis result summary
-      operationId: getAnalysisSummary
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-      responses:
-        '200':
-          description: Completed summary, risk-band counts, and metric availability
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisResultSummary'
-        '404':
-          description: Unknown analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Analysis is not completed or its summary is unavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}/hotspots:
-    get:
-      summary: List filtered and sorted risk hotspots from a completed analysis
-      operationId: listAnalysisHotspots
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-        - $ref: '#/components/parameters/ResultPage'
-        - $ref: '#/components/parameters/ResultPageSize'
-        - $ref: '#/components/parameters/ResultQuery'
-        - $ref: '#/components/parameters/ResultModule'
-        - $ref: '#/components/parameters/RiskLevelFilter'
-        - $ref: '#/components/parameters/HotspotSort'
-        - $ref: '#/components/parameters/SortDirection'
-      responses:
-        '200':
-          description: Immutable scored-file view with pagination metadata
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisHotspotPage'
-        '400':
-          description: Invalid filter, sort, or pagination parameter
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Unknown analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Analysis is not completed or did not produce risk hotspots
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}/files:
-    get:
-      summary: List filtered and sorted static-file results from a completed analysis
-      operationId: listAnalysisFiles
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-        - $ref: '#/components/parameters/ResultPage'
-        - $ref: '#/components/parameters/ResultPageSize'
-        - $ref: '#/components/parameters/ResultQuery'
-        - $ref: '#/components/parameters/ResultModule'
-        - $ref: '#/components/parameters/RiskLevelFilter'
-        - $ref: '#/components/parameters/AnalysisFileLanguageFilter'
-        - $ref: '#/components/parameters/MinimumRiskScore'
-        - $ref: '#/components/parameters/MaximumRiskScore'
-        - $ref: '#/components/parameters/AnalysisFileStatusFilter'
-        - $ref: '#/components/parameters/FileSort'
-        - $ref: '#/components/parameters/SortDirection'
-      responses:
-        '200':
-          description: Immutable static-file view joined with optional Git and risk records
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisFilePage'
-        '400':
-          description: Invalid filter, sort, or pagination parameter
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Unknown analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Analysis is not completed or has no static artifact
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}/files/detail:
-    get:
-      summary: Get one completed analysis file by project-relative path
-      operationId: getAnalysisFile
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-        - $ref: '#/components/parameters/ProjectRelativePath'
-      responses:
-        '200':
-          description: Complete static result with optional Git and risk records
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisFileResult'
-        '400':
-          description: Missing, unsafe, repeated, or unknown query parameter
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Unknown analysis or file
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Analysis is not completed or has no static artifact
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}/modules:
-    get:
-      summary: Get static and optional risk module aggregates for a completed analysis
-      operationId: getAnalysisModules
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-      responses:
-        '200':
-          description: Module aggregates from the immutable report
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisModules'
-        '400':
-          description: This endpoint accepts no query parameters
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Unknown analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Analysis is not completed or has no static artifact
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}/heatmap:
-    get:
-      summary: Get saved heatmap coordinates for a completed analysis
-      operationId: getAnalysisHeatmap
-      description: The heatmap axes and scores are saved with the completed risk model and cannot be recalculated through query parameters.
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-      responses:
-        '200':
-          description: Backend-prepared immutable heatmap cells
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HeatmapData'
-        '400':
-          description: This endpoint accepts no query parameters
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Unknown analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Analysis is not completed or did not produce risk data
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}/export:
-    get:
-      summary: Export one immutable completed report as JSON or CSV
-      operationId: exportAnalysis
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-        - $ref: '#/components/parameters/ExportFormat'
-      responses:
-        '200':
-          description: Downloaded immutable report; format controls the content type and file extension.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisReport'
-            text/csv:
-              schema:
-                type: string
-                format: binary
-        '400':
-          description: Missing, repeated, invalid, or unknown export query parameter
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Unknown analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Analysis has not completed successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /analyses/{analysisId}/report:
-    get:
-      summary: Get an immutable completed report restored from local storage
-      operationId: getAnalysisReport
-      parameters:
-        - $ref: '#/components/parameters/AnalysisId'
-      responses:
-        '200':
-          description: Completed analysis report persisted in local SQLite
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnalysisReport'
-        '400':
-          description: This endpoint accepts no query parameters
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Unknown analysis
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Analysis has not completed successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/MethodNotAllowed'
   /openapi.yaml:
     get:
-      summary: Download the local Swagger/OpenAPI definition
+      summary: Download this OpenAPI document
       operationId: openApiDocument
       responses:
         '200':
-          description: Swagger-compatible OpenAPI document
+          description: OpenAPI 3.1 YAML document
           content:
             application/yaml:
               schema:
                 type: string
         '405':
-          description: Method not allowed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/MethodNotAllowed'
 components:
-  parameters:
-    AnalysisId:
-      name: analysisId
-      in: path
-      required: true
-      schema:
-        type: string
-        minLength: 1
-    AnalysisStatusFilter:
-      name: status
-      in: query
-      schema:
-        type: string
-        enum: [queued, running, completed, failed, cancelled]
-    Page:
-      name: page
-      in: query
-      schema:
-        type: integer
-        minimum: 1
-        default: 1
-    PageSize:
-      name: pageSize
-      in: query
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 200
-        default: 50
-    ResultPage:
-      name: page
-      in: query
-      schema:
-        type: integer
-        minimum: 1
-        default: 1
-    ResultPageSize:
-      name: pageSize
-      in: query
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 200
-        default: 50
-    ResultQuery:
-      name: q
-      in: query
-      schema:
-        type: string
-        maxLength: 512
-      description: Case-insensitive substring matched against a project-relative file path.
-    ResultModule:
-      name: module
-      in: query
-      schema:
-        type: string
-        maxLength: 512
-      description: Project-relative module path. It includes descendants; use . for the project root.
-    RiskLevelFilter:
-      name: riskLevel
-      in: query
-      explode: true
-      schema:
-        type: array
-        items:
-          $ref: '#/components/schemas/RiskLevel'
-      description: Repeat to include multiple risk levels.
-    AnalysisFileLanguageFilter:
-      name: language
-      in: query
-      explode: true
-      schema:
-        type: array
-        items:
-          type: string
-          enum: [go, javascript, python, unknown]
-      description: Repeat to include one or more static-analysis languages.
-    MinimumRiskScore:
-      name: minScore
-      in: query
-      schema:
-        type: integer
-        minimum: 0
-        maximum: 100
-      description: Include only files with a saved risk score at or above this value.
-    MaximumRiskScore:
-      name: maxScore
-      in: query
-      schema:
-        type: integer
-        minimum: 0
-        maximum: 100
-      description: Include only files with a saved risk score at or below this value. It must not be less than minScore.
-    AnalysisFileStatusFilter:
-      name: analysisStatus
-      in: query
-      explode: true
-      schema:
-        type: array
-        items:
-          $ref: '#/components/schemas/FileAnalysisStatus'
-      description: Repeat to include multiple static file statuses.
-    HotspotSort:
-      name: sort
-      in: query
-      schema:
-        type: string
-        enum: [score, path, module, linesOfCode, maxFunctionLength, maxClassLength, gitChurn, changeFrequency]
-        default: score
-    FileSort:
-      name: sort
-      in: query
-      schema:
-        type: string
-        enum: [score, path, module, language, status, linesOfCode, maxFunctionLength, maxClassLength, gitChurn, changeFrequency]
-        default: path
-    SortDirection:
-      name: direction
-      in: query
-      schema:
-        type: string
-        enum: [asc, desc]
-      description: Defaults to desc for score and asc for every other sort.
-    ProjectRelativePath:
-      name: path
-      in: query
-      required: true
-      schema:
-        type: string
-        minLength: 1
-      description: Exact project-relative file path. Absolute, root-escaping, repeated, and backslash paths are rejected.
-    ExportFormat:
-      name: format
-      in: query
-      required: true
-      schema:
-        type: string
-        enum: [json, csv]
+  responses:
+    ValidationError:
+      description: Invalid, inaccessible, or unsafe local input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    MethodNotAllowed:
+      description: Method not allowed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
   schemas:
-    FileAnalysisStatus:
-      type: string
-      enum: [analyzed, empty, no_executable_code, fallback, parse_error, unsupported, read_error]
-    RiskLevelCounts:
-      type: object
-      required: [low, medium, high]
-      properties:
-        low:
-          type: integer
-          minimum: 0
-        medium:
-          type: integer
-          minimum: 0
-        high:
-          type: integer
-          minimum: 0
-    AnalysisResultSummary:
-      type: object
-      required: [analysis, summary, riskLevels, moduleCount, hasGitArtifact]
-      properties:
-        analysis:
-          $ref: '#/components/schemas/AnalysisRun'
-        summary:
-          $ref: '#/components/schemas/AnalysisSummary'
-        riskLevels:
-          $ref: '#/components/schemas/RiskLevelCounts'
-        moduleCount:
-          type: integer
-          minimum: 0
-        riskCoverage:
-          $ref: '#/components/schemas/RiskCoverage'
-        hasGitArtifact:
-          type: boolean
-    AnalysisHotspotPage:
-      type: object
-      required: [items, page, pageSize, totalItems]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/Hotspot'
-        page:
-          type: integer
-          minimum: 1
-        pageSize:
-          type: integer
-          minimum: 1
-        totalItems:
-          type: integer
-          minimum: 0
-        riskCoverage:
-          $ref: '#/components/schemas/RiskCoverage'
-    AnalysisFileResult:
-      type: object
-      required: [analysis]
-      properties:
-        analysis:
-          $ref: '#/components/schemas/FileAnalysis'
-        git:
-          $ref: '#/components/schemas/GitFileMetrics'
-        risk:
-          $ref: '#/components/schemas/Hotspot'
-    AnalysisFilePage:
-      type: object
-      required: [items, page, pageSize, totalItems]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/AnalysisFileResult'
-        page:
-          type: integer
-          minimum: 1
-        pageSize:
-          type: integer
-          minimum: 1
-        totalItems:
-          type: integer
-          minimum: 0
-        riskCoverage:
-          $ref: '#/components/schemas/RiskCoverage'
-    AnalysisModules:
-      type: object
-      required: [static, risk]
-      properties:
-        static:
-          type: array
-          items:
-            $ref: '#/components/schemas/ModuleAnalysis'
-        risk:
-          type: array
-          items:
-            $ref: '#/components/schemas/ModuleHotspot'
-        riskCoverage:
-          $ref: '#/components/schemas/RiskCoverage'
-    PathValidationRequest:
-      type: object
-      required: [projectPath]
-      additionalProperties: false
-      properties:
-        projectPath:
-          type: string
-          description: Absolute local project directory path; it is never returned in responses.
-    PathValidationResponse:
-      type: object
-      required: [valid]
-      properties:
-        valid:
-          type: boolean
-          const: true
-    AnalysisRequest:
-      type: object
-      additionalProperties: false
-      required: [projectPath]
-      properties:
-        projectPath:
-          type: string
-          minLength: 1
-          description: Absolute local project directory visible to this backend. It is not a Git URL and is never echoed in result payloads.
-          example: /workspace/project/backend
-        history:
-          $ref: '#/components/schemas/GitHistoryRange'
-        profile:
-          $ref: '#/components/schemas/RiskProfile'
-    AnalysisEnvelope:
-      type: object
-      required: [analysis]
-      properties:
-        analysis:
-          $ref: '#/components/schemas/AnalysisRun'
-    AnalysisPage:
-      type: object
-      required: [items, page, pageSize, totalItems]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/AnalysisRun'
-        page:
-          type: integer
-          minimum: 1
-        pageSize:
-          type: integer
-          minimum: 1
-        totalItems:
-          type: integer
-          minimum: 0
-    AnalysisRun:
-      type: object
-      required: [id, status, createdAt, history, stages, progress, diagnostics]
-      properties:
-        id:
-          type: string
-        status:
-          type: string
-          enum: [queued, running, completed, failed, cancelled]
-        currentStage:
-          type: [string, 'null']
-          enum: [validation, discovery, analysis, risk_scoring, finalizing, null]
-        createdAt:
-          type: string
-          format: date-time
-        startedAt:
-          type: [string, 'null']
-          format: date-time
-        completedAt:
-          type: [string, 'null']
-          format: date-time
-        history:
-          $ref: '#/components/schemas/GitHistoryRange'
-        stages:
-          type: array
-          items:
-            $ref: '#/components/schemas/StageSnapshot'
-        progress:
-          $ref: '#/components/schemas/AnalysisProgress'
-        diagnostics:
-          type: array
-          items:
-            $ref: '#/components/schemas/AnalysisDiagnostic'
-        summary:
-          $ref: '#/components/schemas/AnalysisSummary'
-    StageSnapshot:
-      type: object
-      required: [stage, status, progress]
-      properties:
-        stage:
-          type: string
-          enum: [validation, discovery, static_analysis, git_analysis, risk_scoring]
-        status:
-          type: string
-          enum: [pending, running, completed, unavailable, failed, cancelled, skipped]
-        startedAt:
-          type: [string, 'null']
-          format: date-time
-        completedAt:
-          type: [string, 'null']
-          format: date-time
-        durationMillis:
-          type: integer
-          minimum: 0
-          description: Measured wall-clock stage duration. Omitted until a started stage reaches a terminal state.
-        progress:
-          $ref: '#/components/schemas/StageProgress'
-    StageProgress:
-      type: object
-      required: [total, completed]
-      properties:
-        total:
-          type: integer
-          minimum: 0
-        completed:
-          type: integer
-          minimum: 0
-    AnalysisProgress:
-      type: object
-      required: [filesDiscovered, filesEligible, filesAnalyzed, filesWithErrors, commitsTotal, commitsScanned, percent]
-      properties:
-        filesDiscovered:
-          type: integer
-          minimum: 0
-        filesEligible:
-          type: integer
-          minimum: 0
-        filesAnalyzed:
-          type: integer
-          minimum: 0
-        filesWithErrors:
-          type: integer
-          minimum: 0
-        commitsTotal:
-          type: integer
-          minimum: 0
-        commitsScanned:
-          type: integer
-          minimum: 0
-        percent:
-          type: integer
-          minimum: 0
-          maximum: 100
-    AnalysisDiagnostic:
-      type: object
-      required: [stage, code, severity, message, recordedAt]
-      properties:
-        stage:
-          type: string
-          enum: [validation, discovery, static_analysis, git_analysis, risk_scoring]
-        path:
-          type: string
-          description: Optional project-relative path. Absolute host paths are never returned.
-        code:
-          type: string
-        severity:
-          type: string
-          enum: [warning, error]
-        message:
-          type: string
-        recordedAt:
-          type: string
-          format: date-time
-    AnalysisSummary:
-      type: object
-      required: [filesDiscovered, filesAnalyzed, filesWithErrors, gitStatus, riskStatus, scoredFiles, unscoredFiles]
-      properties:
-        filesDiscovered:
-          type: integer
-          minimum: 0
-        filesAnalyzed:
-          type: integer
-          minimum: 0
-        filesWithErrors:
-          type: integer
-          minimum: 0
-        gitStatus:
-          type: string
-          enum: [pending, running, completed, unavailable, failed, cancelled, skipped]
-        riskStatus:
-          type: string
-          enum: [pending, running, completed, unavailable, failed, cancelled, skipped]
-        scoredFiles:
-          type: integer
-          minimum: 0
-        unscoredFiles:
-          type: integer
-          minimum: 0
-    AnalysisReport:
-      type: object
-      required: [analysis, artifacts]
-      properties:
-        analysis:
-          $ref: '#/components/schemas/AnalysisRun'
-        artifacts:
-          $ref: '#/components/schemas/AnalysisArtifacts'
-    AnalysisArtifacts:
-      type: object
-      properties:
-        static:
-          $ref: '#/components/schemas/BatchAnalysis'
-        git:
-          $ref: '#/components/schemas/GitAnalysisReport'
-        risk:
-          $ref: '#/components/schemas/RiskAnalysisReport'
-        riskCoverage:
-          $ref: '#/components/schemas/RiskCoverage'
-    RiskCoverage:
-      type: object
-      required: [availableMetrics, unavailableMetrics, requestedProfile, effectiveProfile]
-      properties:
-        availableMetrics:
-          type: array
-          items:
-            $ref: '#/components/schemas/RiskMetric'
-        unavailableMetrics:
-          type: array
-          items:
-            $ref: '#/components/schemas/RiskMetric'
-        requestedProfile:
-          $ref: '#/components/schemas/RiskProfile'
-        effectiveProfile:
-          $ref: '#/components/schemas/RiskProfile'
     HealthResponse:
       type: object
       required: [status, version]
       properties:
         status:
           type: string
-          example: ok
+          const: ok
         version:
           type: string
-          example: 0.1.0
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
     StaticAnalysisRequest:
       type: object
       additionalProperties: false
-      required: [rootPath, files]
+      required: [rootPath]
       properties:
         rootPath:
           type: string
-          description: Absolute local directory path visible to the Go process.
-          example: /workspace/repository
+          description: Absolute local directory allowed by the server policy.
         files:
           type: array
-          minItems: 1
-          description: Repository-relative paths. Absolute and root-escaping paths are rejected.
+          description: |
+            Optional non-empty project-relative paths below rootPath. Omit or
+            pass an empty list to let the server discover supported source
+            files below rootPath within its configured file-count limit.
           items:
             type: string
-          example: [internal/api/server.go, web/app.js]
-    BatchAnalysis:
+            minLength: 1
+    SupportedLanguage:
+      type: string
+      enum: [go, javascript, python, unknown]
+    FileAnalysisStatus:
+      type: string
+      enum: [analyzed, empty, no_executable_code, fallback, parse_error, unsupported, read_error]
+    MetricLength:
       type: object
-      required: [files, modules]
+      required: [max, total]
       properties:
-        files:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileAnalysis'
-        modules:
-          type: array
-          items:
-            $ref: '#/components/schemas/ModuleAnalysis'
+        max:
+          type: integer
+          minimum: 0
+        total:
+          type: integer
+          minimum: 0
+    Metrics:
+      type: object
+      required: [linesOfCode, functionCount, classCount, functionLength, classLength]
+      properties:
+        linesOfCode:
+          type: integer
+          minimum: 0
+        functionCount:
+          type: integer
+          minimum: 0
+        classCount:
+          type: integer
+          minimum: 0
+        functionLength:
+          $ref: '#/components/schemas/MetricLength'
+        classLength:
+          $ref: '#/components/schemas/MetricLength'
+    Diagnostic:
+      type: object
+      required: [code, message, severity]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        severity:
+          type: string
+          enum: [warning, error]
+    Declaration:
+      type: object
+      required: [name, kind, startLine, endLine, length]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [function, method, class]
+        startLine:
+          type: integer
+          minimum: 1
+        endLine:
+          type: integer
+          minimum: 1
+        length:
+          type: integer
+          minimum: 1
     FileAnalysis:
       type: object
       required: [path, language, status, usedFallback, metrics, functions, classes, diagnostics]
       properties:
         path:
           type: string
-          example: internal/api/server.go
+          description: Project-relative slash-normalized path.
         language:
-          type: string
-          enum: [go, javascript, python, unknown]
+          $ref: '#/components/schemas/SupportedLanguage'
         status:
           $ref: '#/components/schemas/FileAnalysisStatus'
         usedFallback:
@@ -1122,7 +303,6 @@ components:
       properties:
         path:
           type: string
-          example: internal/api
         fileCount:
           type: integer
           minimum: 0
@@ -1131,62 +311,18 @@ components:
           minimum: 0
         metrics:
           $ref: '#/components/schemas/Metrics'
-    Metrics:
+    BatchAnalysis:
       type: object
-      required: [linesOfCode, functionCount, classCount, functionLength, classLength]
+      required: [files, modules]
       properties:
-        linesOfCode:
-          type: integer
-          minimum: 0
-        functionCount:
-          type: integer
-          minimum: 0
-        classCount:
-          type: integer
-          minimum: 0
-        functionLength:
-          $ref: '#/components/schemas/LengthSummary'
-        classLength:
-          $ref: '#/components/schemas/LengthSummary'
-    LengthSummary:
-      type: object
-      required: [max, total]
-      properties:
-        max:
-          type: integer
-          minimum: 0
-        total:
-          type: integer
-          minimum: 0
-    Declaration:
-      type: object
-      required: [name, kind, startLine, endLine, length]
-      properties:
-        name:
-          type: string
-        kind:
-          type: string
-          enum: [function, method, class]
-        startLine:
-          type: integer
-          minimum: 1
-        endLine:
-          type: integer
-          minimum: 1
-        length:
-          type: integer
-          minimum: 0
-    Diagnostic:
-      type: object
-      required: [code, message, severity]
-      properties:
-        code:
-          type: string
-        message:
-          type: string
-        severity:
-          type: string
-          enum: [warning, error]
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileAnalysis'
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModuleAnalysis'
     FailureRecord:
       type: object
       required: [path, language, status, usedFallback, diagnostics, recordedAt]
@@ -1194,9 +330,9 @@ components:
         path:
           type: string
         language:
-          type: string
+          $ref: '#/components/schemas/SupportedLanguage'
         status:
-          type: string
+          $ref: '#/components/schemas/FileAnalysisStatus'
         usedFallback:
           type: boolean
         diagnostics:
@@ -1206,17 +342,6 @@ components:
         recordedAt:
           type: string
           format: date-time
-    GitAnalysisRequest:
-      type: object
-      additionalProperties: false
-      required: [repositoryPath]
-      properties:
-        repositoryPath:
-          type: string
-          description: Absolute path to an existing local Git worktree visible to the backend process.
-          example: /workspace/repository
-        history:
-          $ref: '#/components/schemas/GitHistoryRange'
     GitHistoryRange:
       type: object
       additionalProperties: false
@@ -1224,11 +349,54 @@ components:
         from:
           type: [string, 'null']
           format: date-time
-          description: Inclusive UTC lower bound for commit timestamps. Omit for all history.
         to:
           type: [string, 'null']
           format: date-time
-          description: Inclusive UTC upper bound for commit timestamps. Omit for all history.
+    GitAnalysisRequest:
+      type: object
+      additionalProperties: false
+      required: [repositoryPath]
+      properties:
+        repositoryPath:
+          type: string
+          description: Absolute local path to an existing Git worktree.
+        history:
+          $ref: '#/components/schemas/GitHistoryRange'
+    GitFileMetrics:
+      type: object
+      required: [path, previousPaths, deleted, gitChurn, changeFrequency, authorCount, changeConcentration, changeDispersion]
+      properties:
+        path:
+          type: string
+        previousPaths:
+          type: array
+          items:
+            type: string
+        deleted:
+          type: boolean
+        gitChurn:
+          type: integer
+          minimum: 0
+        changeFrequency:
+          type: integer
+          minimum: 0
+        authorCount:
+          type: integer
+          minimum: 0
+        firstChangedAt:
+          type: [string, 'null']
+          format: date-time
+        lastChangedAt:
+          type: [string, 'null']
+          format: date-time
+        changeConcentration:
+          type: number
+          minimum: 0
+          maximum: 1
+        changeDispersion:
+          type: number
+          minimum: 0
+          maximum: 1
     GitAnalysisReport:
       type: object
       required: [commitCount, history, files, diagnostics]
@@ -1246,84 +414,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Diagnostic'
-    GitFileMetrics:
-      type: object
-      required: [path, previousPaths, deleted, gitChurn, changeFrequency, authorCount, firstChangedAt, lastChangedAt, changeConcentration, changeDispersion]
-      properties:
-        path:
-          type: string
-          description: Current or last known repository-relative path.
-        previousPaths:
-          type: array
-          description: Earlier paths preserved across detected renames.
-          items:
-            type: string
-        deleted:
-          type: boolean
-          description: True when the final selected-history change deleted the file.
-        gitChurn:
-          type: integer
-          minimum: 0
-          description: Sum of added and deleted text lines in the selected history.
-        changeFrequency:
-          type: integer
-          minimum: 0
-          description: Number of commits that changed this file identity.
-        authorCount:
-          type: integer
-          minimum: 0
-        firstChangedAt:
-          type: [string, 'null']
-          format: date-time
-        lastChangedAt:
-          type: [string, 'null']
-          format: date-time
-        changeConcentration:
-          type: number
-          minimum: 0
-          maximum: 1
-          description: Monthly change Herfindahl concentration; 1 means all changes occurred in one month.
-        changeDispersion:
-          type: number
-          minimum: 0
-          maximum: 1
-          description: One minus changeConcentration; higher values mean changes were distributed across months.
-    RiskAnalysisRequest:
-      type: object
-      additionalProperties: false
-      required: [files]
-      properties:
-        files:
-          type: array
-          minItems: 1
-          description: Per-file metric records produced by the local static- and Git-analysis stages.
-          items:
-            $ref: '#/components/schemas/HotspotInput'
-        profile:
-          $ref: '#/components/schemas/RiskProfile'
-        heatmap:
-          $ref: '#/components/schemas/HeatmapConfiguration'
-        availableMetrics:
-          type: array
-          description: Optional availability set. Omit it only when all five metric fields are present. When supplied, each file must include the fields named by this set; omitted metrics are excluded rather than treated as zero.
-          items:
-            $ref: '#/components/schemas/RiskMetric'
-    HotspotInput:
-      type: object
-      additionalProperties: false
-      required: [path, metrics]
-      properties:
-        path:
-          type: string
-          minLength: 1
-          description: Repository-relative path. Absolute and root-escaping paths are rejected.
-          example: internal/api/server.go
-        metrics:
-          $ref: '#/components/schemas/HotspotMetrics'
+    RiskMetric:
+      type: string
+      enum: [lines_of_code, max_function_length, max_class_length, git_churn, change_frequency]
+    RiskLevel:
+      type: string
+      enum: [low, medium, high]
     HotspotMetrics:
       type: object
-      additionalProperties: false
-      description: All five fields are required when availableMetrics is omitted. When availableMetrics is supplied, require precisely the fields it identifies; unavailable fields are excluded from scoring.
+      required: [linesOfCode, maxFunctionLength, maxClassLength, gitChurn, changeFrequency]
       properties:
         linesOfCode:
           type: integer
@@ -1340,113 +439,82 @@ components:
         changeFrequency:
           type: integer
           minimum: 0
-      example:
-        linesOfCode: 240
-        maxFunctionLength: 55
-        maxClassLength: 0
-        gitChurn: 180
-        changeFrequency: 12
-    RiskProfile:
+    HotspotInput:
       type: object
-      additionalProperties: false
-      required: [version, weights, bands]
-      description: A complete local profile. Weights must be finite, non-negative, recognized metric identifiers and sum to 1.
+      required: [path, metrics]
       properties:
-        version:
+        path:
           type: string
-          minLength: 1
-          example: team-risk-v1
-        weights:
-          type: object
-          minProperties: 1
-          propertyNames:
-            $ref: '#/components/schemas/RiskMetric'
-          additionalProperties:
-            type: number
-            minimum: 0
-          description: Relative weights keyed by lines_of_code, max_function_length, max_class_length, git_churn, or change_frequency. The supplied weights must sum to 1.
-          example:
-            lines_of_code: 0.15
-            max_function_length: 0.25
-            max_class_length: 0.10
-            git_churn: 0.25
-            change_frequency: 0.25
-        bands:
-          $ref: '#/components/schemas/RiskBands'
+        metrics:
+          $ref: '#/components/schemas/HotspotMetrics'
     RiskBands:
       type: object
-      additionalProperties: false
       required: [lowMax, mediumMax]
-      description: Scores 0 through lowMax are low, scores through mediumMax are medium, and higher scores are high.
       properties:
         lowMax:
           type: integer
           minimum: 0
           maximum: 98
-          default: 34
         mediumMax:
           type: integer
           minimum: 1
           maximum: 99
-          default: 64
+    RiskProfile:
+      type: object
+      required: [version, weights, bands]
+      properties:
+        version:
+          type: string
+        weights:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 1
+        bands:
+          $ref: '#/components/schemas/RiskBands'
     HeatmapConfiguration:
       type: object
-      additionalProperties: false
       required: [xMetric, yMetric]
-      description: Two distinct risk metric identifiers. Omit this object for git_churn by lines_of_code.
       properties:
         xMetric:
           $ref: '#/components/schemas/RiskMetric'
         yMetric:
           $ref: '#/components/schemas/RiskMetric'
-    RiskMetric:
-      type: string
-      enum: [lines_of_code, max_function_length, max_class_length, git_churn, change_frequency]
-    RiskLevel:
-      type: string
-      enum: [low, medium, high]
-    RiskAnalysisReport:
+    RiskAnalysisRequest:
       type: object
-      required: [profile, requestedProfile, availableMetrics, unavailableMetrics, formula, normalization, limitations, files, modules, heatmap]
+      additionalProperties: false
+      required: [files]
       properties:
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/HotspotInput'
         profile:
-          description: Effective profile after unavailable metric weights are renormalized.
           $ref: '#/components/schemas/RiskProfile'
-        requestedProfile:
-          $ref: '#/components/schemas/RiskProfile'
+        heatmap:
+          $ref: '#/components/schemas/HeatmapConfiguration'
         availableMetrics:
           type: array
           items:
             $ref: '#/components/schemas/RiskMetric'
-        unavailableMetrics:
-          type: array
-          items:
-            $ref: '#/components/schemas/RiskMetric'
-        formula:
-          type: string
-          description: Exact scoring formula applied by the backend.
-          example: round(100 × sum(weight(metric) × normalized(metric, file)))
-        normalization:
-          type: string
-          description: Exact cross-file normalization rule applied by the backend.
-          example: Each metric is divided by its nearest-rank 95th-percentile value across the requested files and capped at 1.
-        limitations:
-          type: array
-          description: Model limits that must be considered when interpreting scores.
-          items:
-            type: string
-        files:
-          type: array
-          description: Hotspots ordered by descending score, then normalized path; rank starts at 1.
-          items:
-            $ref: '#/components/schemas/Hotspot'
-        modules:
-          type: array
-          description: Directory aggregates ordered by descending mean score, then highest file score, then path.
-          items:
-            $ref: '#/components/schemas/ModuleHotspot'
-        heatmap:
-          $ref: '#/components/schemas/HeatmapData'
+    RiskContribution:
+      type: object
+      required: [metric, raw, normalizationCap, normalized, weight, weighted]
+      properties:
+        metric:
+          $ref: '#/components/schemas/RiskMetric'
+        raw:
+          type: integer
+        normalizationCap:
+          type: integer
+        normalized:
+          type: number
+        weight:
+          type: number
+        weighted:
+          type: number
     Hotspot:
       type: object
       required: [path, module, metrics, score, level, rank, contributions]
@@ -1455,7 +523,6 @@ components:
           type: string
         module:
           type: string
-          description: Repository-relative directory, or . for the repository root.
         metrics:
           $ref: '#/components/schemas/HotspotMetrics'
         score:
@@ -1469,68 +536,22 @@ components:
           minimum: 1
         contributions:
           type: array
-          description: One contribution for each current model metric, including zero-weight metrics.
           items:
             $ref: '#/components/schemas/RiskContribution'
-    RiskContribution:
-      type: object
-      required: [metric, raw, normalizationCap, normalized, weight, weighted]
-      properties:
-        metric:
-          $ref: '#/components/schemas/RiskMetric'
-        raw:
-          type: integer
-          minimum: 0
-        normalizationCap:
-          type: integer
-          minimum: 0
-          description: The metric's nearest-rank 95th-percentile value for this response population.
-        normalized:
-          type: number
-          minimum: 0
-          maximum: 1
-        weight:
-          type: number
-          minimum: 0
-          maximum: 1
-        weighted:
-          type: number
-          minimum: 0
-          maximum: 1
     ModuleHotspot:
       type: object
       required: [path, fileCount, score, level, highestFileScore]
       properties:
         path:
           type: string
-          description: Repository-relative directory, or . for the repository root.
         fileCount:
           type: integer
-          minimum: 1
         score:
           type: integer
-          minimum: 0
-          maximum: 100
-          description: Rounded arithmetic mean of its file hotspot scores.
         level:
           $ref: '#/components/schemas/RiskLevel'
         highestFileScore:
           type: integer
-          minimum: 0
-          maximum: 100
-    HeatmapData:
-      type: object
-      required: [xMetric, yMetric, cells]
-      properties:
-        xMetric:
-          $ref: '#/components/schemas/RiskMetric'
-        yMetric:
-          $ref: '#/components/schemas/RiskMetric'
-        cells:
-          type: array
-          description: Cells in the same rank order as files. The backend prepares all coordinates and scores.
-          items:
-            $ref: '#/components/schemas/HeatmapCell'
     HeatmapCell:
       type: object
       required: [path, module, xValue, yValue, score, level, rank]
@@ -1541,28 +562,57 @@ components:
           type: string
         xValue:
           type: integer
-          minimum: 0
         yValue:
           type: integer
-          minimum: 0
         score:
           type: integer
-          minimum: 0
-          maximum: 100
         level:
           $ref: '#/components/schemas/RiskLevel'
         rank:
           type: integer
-          minimum: 1
-    ErrorResponse:
+    HeatmapData:
       type: object
-      required: [error]
+      required: [xMetric, yMetric, cells]
       properties:
-        error:
-          type: object
-          required: [code, message]
-          properties:
-            code:
-              type: string
-            message:
-              type: string
+        xMetric:
+          $ref: '#/components/schemas/RiskMetric'
+        yMetric:
+          $ref: '#/components/schemas/RiskMetric'
+        cells:
+          type: array
+          items:
+            $ref: '#/components/schemas/HeatmapCell'
+    RiskAnalysisReport:
+      type: object
+      required: [profile, requestedProfile, availableMetrics, unavailableMetrics, formula, normalization, limitations, files, modules, heatmap]
+      properties:
+        profile:
+          $ref: '#/components/schemas/RiskProfile'
+        requestedProfile:
+          $ref: '#/components/schemas/RiskProfile'
+        availableMetrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskMetric'
+        unavailableMetrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskMetric'
+        formula:
+          type: string
+        normalization:
+          type: string
+        limitations:
+          type: array
+          items:
+            type: string
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/Hotspot'
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModuleHotspot'
+        heatmap:
+          $ref: '#/components/schemas/HeatmapData'
