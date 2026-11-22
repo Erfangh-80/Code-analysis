@@ -8,3 +8,5 @@ require (
 	github.com/tree-sitter/tree-sitter-javascript v0.21.5-0.20240818005344-15887341e5b5
 	github.com/tree-sitter/tree-sitter-python v0.21.1-0.20240818005537-55a9b8a4fbfb
 )
+
+require github.com/mattn/go-pointer v0.0.1 // indirect
