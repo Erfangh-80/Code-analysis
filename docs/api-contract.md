@@ -32,6 +32,16 @@ Static support is Go, JavaScript (`.js`, `.mjs`, `.cjs`), and Python. The delive
 
 ## Persisted asynchronous analyses
 
+### `POST /analyses/validate-path`
+
+Performs the same canonical local-directory and configured-root check used by analysis start, but does **not** queue, persist, scan, or execute anything. The request is deliberately limited to the local `projectPath` input:
+
+```json
+{ "projectPath": "/absolute/path/on/backend-host/project" }
+```
+
+A successful response is `{ "valid": true }`. Invalid, inaccessible, relative, or unauthorized paths return `400 VALIDATION_ERROR` with a display-safe generic message; no absolute host path is returned. The endpoint is a UI preflight, not a reservation: `POST /analyses` validates the path again before it creates a run, so an intervening filesystem or policy change remains safe.
+
 ### `POST /analyses`
 
 Starts a bounded asynchronous local analysis and returns `202 Accepted`.
@@ -129,7 +139,7 @@ Every endpoint in this section reads the immutable stored report and returns `40
 | `GET /analyses/{analysisId}/heatmap` | Saved backend-prepared heatmap axes and cells. It does not accept alternate axes because that would imply a recalculation. |
 | `GET /analyses/{analysisId}/report` | Complete raw immutable report, including all persisted artifacts. |
 
-`/hotspots` and `/files` accept one-based `page` and `pageSize` (`1..200`), optional case-insensitive path query `q`, optional project-relative `module` prefix, repeated `riskLevel` values, a supported `sort`, and `direction=asc|desc`. `/files` also accepts repeated static `analysisStatus` values. The server rejects unknown, repeated scalar, malformed, out-of-range, or endpoint-incompatible query parameters with `400 VALIDATION_ERROR`. Sorting has deterministic path ties.
+`/hotspots` and `/files` accept one-based `page` and `pageSize` (`1..200`), optional case-insensitive path query `q`, optional project-relative `module` prefix, repeated `riskLevel` values, a supported `sort`, and `direction=asc|desc`. `/files` additionally accepts repeated `language` and `analysisStatus` values plus `minScore`/`maxScore` integers (`0..100`, with `minScore <= maxScore`). Score-bound filtering excludes files with no saved risk score rather than treating missing data as zero. The server rejects unknown, repeated scalar, malformed, out-of-range, or endpoint-incompatible query parameters with `400 VALIDATION_ERROR`. Sorting has deterministic path ties.
 
 ### `GET /analyses/{analysisId}/export?format=json|csv`
 

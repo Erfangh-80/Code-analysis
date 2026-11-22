@@ -42,7 +42,7 @@ type Orchestrator struct {
 	git     GitHistoryAnalyzer
 	risk    RiskAnalyzer
 
-	runSlots       chan struct{}
+	runSlots        chan struct{}
 	analysisTimeout time.Duration
 
 	mu      sync.Mutex
@@ -118,6 +118,16 @@ func (orchestrator *Orchestrator) Start(ctx context.Context, request domain.Anal
 	orchestrator.mu.Unlock()
 	go orchestrator.execute(runContext, run)
 	return run, nil
+}
+
+// ValidateProjectPath checks that a local project is accessible within the
+// configured scanner policy without queuing or persisting an analysis run.
+func (orchestrator *Orchestrator) ValidateProjectPath(ctx context.Context, projectPath string) error {
+	if orchestrator.scanner == nil {
+		return fmt.Errorf("analysis orchestrator is not configured")
+	}
+	_, err := orchestrator.scanner.Resolve(ctx, projectPath)
+	return err
 }
 
 // Get returns a locally persisted lifecycle snapshot.

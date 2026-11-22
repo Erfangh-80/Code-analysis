@@ -52,6 +52,14 @@ type staticAnalysisFailureResponse struct {
 	Items []domain.FailureRecord `json:"items"`
 }
 
+type pathValidationRequest struct {
+	ProjectPath string `json:"projectPath"`
+}
+
+type pathValidationResponse struct {
+	Valid bool `json:"valid"`
+}
+
 type handler struct {
 	version        string
 	staticAnalysis *application.StaticAnalysisService
@@ -224,6 +232,10 @@ func (handler *handler) handleAnalyses(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusServiceUnavailable, "ANALYSIS_UNAVAILABLE", "Durable analysis orchestration is not configured for this handler.")
 		return
 	}
+	if request.URL.Path == "/api/v1/analyses/validate-path" {
+		handler.handleValidateAnalysisPath(response, request)
+		return
+	}
 	if request.URL.Path == "/api/v1/analyses" {
 		switch request.Method {
 		case http.MethodPost:
@@ -291,6 +303,26 @@ func (handler *handler) handleAnalyses(response http.ResponseWriter, request *ht
 	}
 }
 
+func (handler *handler) handleValidateAnalysisPath(response http.ResponseWriter, request *http.Request) {
+	if !requireMethod(response, request, http.MethodPost) {
+		return
+	}
+	if err := requireOnlyQueryParameters(request, nil); err != nil {
+		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "This path validation endpoint does not accept query parameters.")
+		return
+	}
+	payload, err := decodePathValidationRequest(request)
+	if err != nil {
+		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "Provide an absolute local projectPath.")
+		return
+	}
+	if err := handler.analyses.ValidateProjectPath(request.Context(), payload.ProjectPath); err != nil {
+		handleAnalysisError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, pathValidationResponse{Valid: true})
+}
+
 func (handler *handler) handleStartAnalysis(response http.ResponseWriter, request *http.Request) {
 	payload, err := decodeAnalysisRequest(request)
 	if err != nil {
@@ -354,6 +386,22 @@ func requireMethod(response http.ResponseWriter, request *http.Request, expected
 	response.Header().Set("Allow", expected)
 	writeError(response, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "This HTTP method is not supported for the requested route.")
 	return false
+}
+
+func decodePathValidationRequest(request *http.Request) (pathValidationRequest, error) {
+	var payload pathValidationRequest
+	decoder := json.NewDecoder(io.LimitReader(request.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return pathValidationRequest{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return pathValidationRequest{}, io.ErrUnexpectedEOF
+	}
+	if strings.TrimSpace(payload.ProjectPath) == "" {
+		return pathValidationRequest{}, io.ErrUnexpectedEOF
+	}
+	return payload, nil
 }
 
 func decodeAnalysisRequest(request *http.Request) (domain.AnalysisRequest, error) {

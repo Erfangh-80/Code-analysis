@@ -10,15 +10,18 @@ afterEach(() => {
 });
 
 describe("NewAnalysisPage", () => {
-  it("starts a valid local analysis and takes the user to live progress", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      new Response(
+  it("validates a local path with the backend before it starts live analysis", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input).endsWith("/analyses/validate-path")) {
+        return new Response(JSON.stringify({ valid: true }), { status: 200 });
+      }
+      return new Response(
         JSON.stringify({
           analysis: { id: "analysis_123" },
         }),
         { status: 202 },
-      ),
-    );
+      );
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const router = createMemoryRouter(
@@ -40,9 +43,13 @@ describe("NewAnalysisPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "اعتبارسنجی و شروع تحلیل" }));
 
     expect(await screen.findByText("صفحهٔ پیشرفت تحلیل")).toBeInTheDocument();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
-    expect(JSON.parse(String(init?.body))).toMatchObject({
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/analyses/validate-path");
+    const validationInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(JSON.parse(String(validationInit?.body))).toEqual({ projectPath: "/workspace/project" });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/analyses");
+    const startInit = fetchMock.mock.calls[1]?.[1] as RequestInit | undefined;
+    expect(JSON.parse(String(startInit?.body))).toMatchObject({
       projectPath: "/workspace/project",
       profile: { version: "risk-v1" },
     });

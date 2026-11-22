@@ -204,6 +204,9 @@ func matchesFile(item domain.AnalysisFileResult, query domain.ResultListQuery) b
 	if !matchesPathAndModule(item.Analysis.Path, module, query.Query, query.Module) {
 		return false
 	}
+	if len(query.Languages) > 0 && !containsLanguage(query.Languages, item.Analysis.Language) {
+		return false
+	}
 	if len(query.AnalysisStatuses) > 0 && !containsAnalysisStatus(query.AnalysisStatuses, item.Analysis.Status) {
 		return false
 	}
@@ -211,6 +214,12 @@ func matchesFile(item domain.AnalysisFileResult, query domain.ResultListQuery) b
 		if item.Risk == nil || !matchesRiskLevel(item.Risk.Level, query.RiskLevels) {
 			return false
 		}
+	}
+	if query.MinScore != nil && (item.Risk == nil || item.Risk.Score < *query.MinScore) {
+		return false
+	}
+	if query.MaxScore != nil && (item.Risk == nil || item.Risk.Score > *query.MaxScore) {
+		return false
 	}
 	return true
 }
@@ -231,6 +240,15 @@ func matchesRiskLevel(level domain.RiskLevel, allowed []domain.RiskLevel) bool {
 	}
 	for _, candidate := range allowed {
 		if candidate == level {
+			return true
+		}
+	}
+	return false
+}
+
+func containsLanguage(allowed []domain.Language, language domain.Language) bool {
+	for _, candidate := range allowed {
+		if candidate == language {
 			return true
 		}
 	}

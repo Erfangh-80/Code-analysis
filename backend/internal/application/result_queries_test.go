@@ -41,6 +41,20 @@ func TestResultQueriesFilterSortPaginateAndCopyCompletedArtifacts(t *testing.T) 
 	if files.Items[0].Git == nil || files.Items[0].Risk == nil {
 		t.Fatalf("joined file = %+v, want Git and risk data", files.Items[0])
 	}
+	minimum, maximum := 80, 95
+	filteredByLanguageAndScore, err := orchestrator.Files(ctx, store.run.ID, domain.ResultListQuery{
+		Languages: []domain.Language{domain.LanguageGo},
+		MinScore:  &minimum,
+		MaxScore:  &maximum,
+		Page:      1,
+		PageSize:  50,
+	})
+	if err != nil {
+		t.Fatalf("filter files by language and score: %v", err)
+	}
+	if filteredByLanguageAndScore.TotalItems != 1 || len(filteredByLanguageAndScore.Items) != 1 || filteredByLanguageAndScore.Items[0].Analysis.Path != "cmd/beta.go" {
+		t.Errorf("language/score filtered files = %+v", filteredByLanguageAndScore)
+	}
 	files.Items[0].Analysis.Functions[0].Name = "mutated"
 	files.Items[0].Git.PreviousPaths[0] = "mutated"
 	files.Items[0].Risk.Contributions[0].Weight = 0
@@ -154,7 +168,7 @@ func resultViewFixture() domain.AnalysisReport {
 		Artifacts: domain.AnalysisArtifacts{
 			Static: &domain.BatchAnalysis{
 				Files: []domain.FileAnalysis{
-					fixtureFile("cmd/alpha.go", "Alpha", 10),
+					fixtureFileWithLanguage("cmd/alpha.go", "Alpha", 10, domain.LanguageJavaScript),
 					fixtureFile("cmd/beta.go", "Beta", 20),
 					fixtureFile("root.go", "Root", 5),
 				},
@@ -180,9 +194,13 @@ func resultViewFixture() domain.AnalysisReport {
 }
 
 func fixtureFile(path, name string, lines int) domain.FileAnalysis {
+	return fixtureFileWithLanguage(path, name, lines, domain.LanguageGo)
+}
+
+func fixtureFileWithLanguage(path, name string, lines int, language domain.Language) domain.FileAnalysis {
 	return domain.FileAnalysis{
 		Path:      path,
-		Language:  domain.LanguageGo,
+		Language:  language,
 		Status:    domain.AnalysisStatusAnalyzed,
 		Metrics:   domain.Metrics{LinesOfCode: lines},
 		Functions: []domain.Declaration{{Name: name, Kind: domain.DeclarationKindFunction, StartLine: 1, EndLine: 2, Length: 2}},

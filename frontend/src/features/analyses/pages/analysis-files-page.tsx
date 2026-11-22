@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, FileSliders, Search, SlidersHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ApiErrorState, EmptyState, LoadingState } from "@/components/molecules/async-state";
@@ -9,10 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RiskLevelBadge } from "@/features/analyses/components/risk-level-badge";
-import { useAnalysisFilesQuery, useAnalysisReportQuery } from "@/hooks/use-analysis-queries";
+import { useAnalysisFilesQuery } from "@/hooks/use-analysis-queries";
 import { fileStatusLabels, formatNumber, languageLabels } from "@/lib/analysis";
-import { fileResultsFromReport, riskMatches } from "@/lib/report";
-import type { AnalysisFileResult, FileAnalysisStatus, RiskLevel, SupportedLanguage } from "@/types/api";
+import type { FileAnalysisStatus, RiskLevel, SupportedLanguage } from "@/types/api";
 
 const fileStatuses: Array<{ value: "all" | FileAnalysisStatus; label: string }> = [
   { value: "all", label: "همهٔ وضعیت‌ها" },
@@ -39,18 +38,6 @@ const sortOptions = [
 
 type SortKey = (typeof sortOptions)[number][0];
 
-function fileValue(file: AnalysisFileResult, sort: SortKey): number | string {
-  switch (sort) {
-    case "path": return file.analysis.path;
-    case "language": return file.analysis.language;
-    case "linesOfCode": return file.analysis.metrics.linesOfCode;
-    case "maxFunctionLength": return file.analysis.metrics.functionLength.max;
-    case "gitChurn": return file.git?.gitChurn ?? -1;
-    case "changeFrequency": return file.git?.changeFrequency ?? -1;
-    case "score": return file.risk?.score ?? -1;
-  }
-}
-
 export function AnalysisFilesPage() {
   const { analysisId } = useParams();
   const [page, setPage] = useState(1);
@@ -63,13 +50,18 @@ export function AnalysisFilesPage() {
   const [sort, setSort] = useState<SortKey>("path");
   const [direction, setDirection] = useState<"asc" | "desc">("asc");
   const pageSize = 20;
-  const useClientFilters = language !== "all" || minScore !== "" || maxScore !== "";
-  const serverFiles = useAnalysisFilesQuery(
-    analysisId,
-    { page, pageSize, q, riskLevel: riskLevels, analysisStatus: status === "all" ? undefined : [status], sort, direction },
-    !useClientFilters,
-  );
-  const report = useAnalysisReportQuery(analysisId, useClientFilters);
+  const filesQuery = useAnalysisFilesQuery(analysisId, {
+    page,
+    pageSize,
+    q,
+    language: language === "all" ? undefined : [language],
+    riskLevel: riskLevels,
+    analysisStatus: status === "all" ? undefined : [status],
+    minScore: minScore === "" ? undefined : Number(minScore),
+    maxScore: maxScore === "" ? undefined : Number(maxScore),
+    sort,
+    direction,
+  });
 
   function updatePage() {
     setPage(1);
@@ -80,35 +72,7 @@ export function AnalysisFilesPage() {
     updatePage();
   }
 
-  const clientData = useMemo(() => {
-    if (!report.data) return undefined;
-    const min = minScore === "" ? Number.NEGATIVE_INFINITY : Number(minScore);
-    const max = maxScore === "" ? Number.POSITIVE_INFINITY : Number(maxScore);
-    const lowerQuery = q.trim().toLowerCase();
-    const filtered = fileResultsFromReport(report.data)
-      .filter((file) => language === "all" || file.analysis.language === language)
-      .filter((file) => status === "all" || file.analysis.status === status)
-      .filter((file) => riskMatches(riskLevels, file.risk?.level))
-      .filter((file) => !file.risk ? minScore === "" && maxScore === "" : file.risk.score >= min && file.risk.score <= max)
-      .filter((file) => !lowerQuery || file.analysis.path.toLowerCase().includes(lowerQuery))
-      .sort((left, right) => {
-        const first = fileValue(left, sort);
-        const second = fileValue(right, sort);
-        const comparison = typeof first === "string" && typeof second === "string" ? first.localeCompare(second) : Number(first) - Number(second);
-        return direction === "asc" ? comparison : -comparison;
-      });
-    return {
-      items: filtered.slice((page - 1) * pageSize, page * pageSize),
-      page,
-      pageSize,
-      totalItems: filtered.length,
-    };
-  }, [direction, language, maxScore, minScore, page, q, report.data, riskLevels, sort, status]);
-
-  const files = useClientFilters ? clientData : serverFiles.data;
-  const isPending = useClientFilters ? report.isPending : serverFiles.isPending;
-  const error = useClientFilters ? report.error : serverFiles.error;
-  const isError = useClientFilters ? report.isError : serverFiles.isError;
+  const files = filesQuery.data;
   const totalPages = files ? Math.max(1, Math.ceil(files.totalItems / files.pageSize)) : 1;
 
   if (!analysisId) {
@@ -155,11 +119,11 @@ export function AnalysisFilesPage() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-extrabold"><SlidersHorizontal className="size-3.5" />سطح ریسک:</span>
             {(["low", "medium", "high"] as RiskLevel[]).map((level) => <Button key={level} type="button" size="sm" variant={riskLevels.includes(level) ? "secondary" : "outline"} aria-pressed={riskLevels.includes(level)} onClick={() => toggleRisk(level)}>{level === "low" ? "کم" : level === "medium" ? "متوسط" : "زیاد"}</Button>)}
-            {useClientFilters && <span className="text-xs text-muted-foreground">فیلتر زبان و بازهٔ امتیاز با گزارش کامل همین تحلیل اعمال می‌شود.</span>}
+            <span className="text-xs text-muted-foreground">تمام فیلترها، مرتب‌سازی و صفحه‌بندی در سرویس محلی و روی گزارش immutable اعمال می‌شوند.</span>
           </div>
 
-          {isPending && <LoadingState />}
-          {isError && <ApiErrorState error={error} onRetry={() => useClientFilters ? report.refetch() : serverFiles.refetch()} title="فهرست فایل‌ها قابل دریافت نیست" />}
+          {filesQuery.isPending && <LoadingState />}
+          {filesQuery.isError && <ApiErrorState error={filesQuery.error} onRetry={() => filesQuery.refetch()} title="فهرست فایل‌ها قابل دریافت نیست" />}
           {files && files.items.length === 0 && <EmptyState title="فایلی با این فیلترها پیدا نشد" description="فیلترها را تغییر دهید یا بازهٔ امتیاز ریسک را پاک کنید." />}
           {files && files.items.length > 0 && (
             <>

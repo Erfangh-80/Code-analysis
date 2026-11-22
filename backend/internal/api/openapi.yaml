@@ -217,6 +217,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /analyses/validate-path:
+    post:
+      summary: Validate an accessible local project path before queueing analysis
+      operationId: validateAnalysisProjectPath
+      description: |
+        Checks only that projectPath is an absolute accessible directory within
+        the local backend's configured analysis roots. It never queues a run,
+        reads source files, returns an absolute path, or executes project code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PathValidationRequest'
+      responses:
+        '200':
+          description: The local path is eligible to be submitted for analysis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PathValidationResponse'
+        '400':
+          description: Invalid, inaccessible, or unauthorized local path
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '405':
+          description: Method not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /analyses/{analysisId}:
     get:
       summary: Get analysis status, stages, progress, and safe diagnostics
@@ -347,6 +380,9 @@ paths:
         - $ref: '#/components/parameters/ResultQuery'
         - $ref: '#/components/parameters/ResultModule'
         - $ref: '#/components/parameters/RiskLevelFilter'
+        - $ref: '#/components/parameters/AnalysisFileLanguageFilter'
+        - $ref: '#/components/parameters/MinimumRiskScore'
+        - $ref: '#/components/parameters/MaximumRiskScore'
         - $ref: '#/components/parameters/AnalysisFileStatusFilter'
         - $ref: '#/components/parameters/FileSort'
         - $ref: '#/components/parameters/SortDirection'
@@ -622,6 +658,32 @@ components:
         items:
           $ref: '#/components/schemas/RiskLevel'
       description: Repeat to include multiple risk levels.
+    AnalysisFileLanguageFilter:
+      name: language
+      in: query
+      explode: true
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [go, javascript, python, unknown]
+      description: Repeat to include one or more static-analysis languages.
+    MinimumRiskScore:
+      name: minScore
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 100
+      description: Include only files with a saved risk score at or above this value.
+    MaximumRiskScore:
+      name: maxScore
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 100
+      description: Include only files with a saved risk score at or below this value. It must not be less than minScore.
     AnalysisFileStatusFilter:
       name: analysisStatus
       in: query
@@ -763,6 +825,21 @@ components:
             $ref: '#/components/schemas/ModuleHotspot'
         riskCoverage:
           $ref: '#/components/schemas/RiskCoverage'
+    PathValidationRequest:
+      type: object
+      required: [projectPath]
+      additionalProperties: false
+      properties:
+        projectPath:
+          type: string
+          description: Absolute local project directory path; it is never returned in responses.
+    PathValidationResponse:
+      type: object
+      required: [valid]
+      properties:
+        valid:
+          type: boolean
+          const: true
     AnalysisRequest:
       type: object
       additionalProperties: false
