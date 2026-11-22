@@ -1,4 +1,4 @@
-import type { AnalysisRunStatus, AnalysisStage, FileAnalysisStatus, RiskLevel, RiskMetric, StageStatus, SupportedLanguage } from "@/types/api";
+import type { FileAnalysisStatus, RiskLevel, RiskMetric, SupportedLanguage } from "@/types/api";
 
 export const riskLevelLabels: Record<RiskLevel, string> = {
   low: "کم",
@@ -21,24 +21,6 @@ export const metricLabels: Record<RiskMetric, string> = {
   change_frequency: "تعداد تغییرات",
 };
 
-export const stageLabels: Record<AnalysisStage, string> = {
-  validation: "اعتبارسنجی",
-  discovery: "شناسایی فایل‌ها",
-  static_analysis: "تحلیل ایستا",
-  git_analysis: "تحلیل تاریخچهٔ Git",
-  risk_scoring: "محاسبهٔ ریسک",
-};
-
-export const stageStatusLabels: Record<StageStatus, string> = {
-  pending: "در انتظار",
-  running: "در حال اجرا",
-  completed: "تکمیل‌شده",
-  unavailable: "در دسترس نیست",
-  failed: "ناموفق",
-  cancelled: "لغوشده",
-  skipped: "رد شده",
-};
-
 export const fileStatusLabels: Record<FileAnalysisStatus, string> = {
   analyzed: "تحلیل‌شده",
   empty: "خالی",
@@ -49,24 +31,11 @@ export const fileStatusLabels: Record<FileAnalysisStatus, string> = {
   read_error: "خطای خواندن",
 };
 
-export function isTerminalAnalysisStatus(status: AnalysisRunStatus) {
-  return status === "completed" || status === "failed" || status === "cancelled";
-}
-
 export function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined) {
     return "—";
   }
   return new Intl.NumberFormat("fa-IR").format(value);
-}
-
-export function toDateTimeLocal(value?: string | null) {
-  if (!value) {
-    return "";
-  }
-  const date = new Date(value);
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 export function fromDateTimeLocal(value: string) {

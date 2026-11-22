@@ -1,155 +1,132 @@
-# Code Risk Analyzer — Architecture
+# Code Risk Analyzer — architecture for phases 1–4
 
-**Status:** implemented backend baseline through local reporting, exports, OpenAPI, CORS, and API testing (BE-39–BE-92).
+**Status:** implemented phase-only architecture.
 
-**Scope:** local/on-premises analysis of Go, JavaScript, and Python projects. The frontend remains outside this increment.
+**Scope:** the first four phases: requirements/acceptance criteria, local architecture and test data, static analysis for Go/JavaScript/Python, and Git-history Hotspot scoring. This document deliberately describes no durable analysis lifecycle, database, scanner, report, export, or dashboard query system.
 
-## Principles and boundaries
+## 1. Requirements and acceptance criteria
 
-| Constraint | Implementation |
+### Product boundary
+
+The tool helps a developer prioritize code for review or refactoring. It works only with files and an existing Git worktree visible to the local Go process.
+
+| Requirement | Acceptance criterion |
 | --- | --- |
-| Local-only input | `projectPath` is an absolute directory available to the backend host. Git URLs, clone operations, source uploads, and remote repository APIs are not accepted. |
-| Static-only execution | Source files are read and parsed but never built, imported, tested, run, or otherwise executed. Git commands use fixed argument arrays and read-only history operations. |
-| Git is optional | Every accessible project receives static discovery/analysis. A non-Git or Git-unavailable project yields an `unavailable` Git stage and can still receive static-only risk scoring. |
-| Safe public data | API payloads contain project-relative paths, opaque analysis IDs, and safe diagnostics. Canonical absolute paths and SQLite/Git internals stay backend-only. |
-| Honest scoring | A metric with unavailable source data is excluded from the risk model; it is never fabricated as zero. Effective weights are renormalized and recorded. |
-| Durable lifecycle | SQLite is the primary run store, including stage/progress state and completed immutable reports across backend restarts. |
+| Local-only | HTTP accepts local paths; the backend does not accept Git URLs, uploads, or clone requests. The frontend uses relative API paths. |
+| No target-code execution | Static analysis reads/parses text only. Git commands use fixed read-only argument lists. Tests use source fixtures but never execute them. |
+| Static language support | Explicitly named `.go`, `.js`/`.mjs`/`.cjs`, and `.py` files produce language/status/metric results. |
+| Safe file boundary | A request has one absolute root plus non-empty relative file paths. Production restricts the root to configured canonical allowed roots; traversal and symlink escapes are rejected. |
+| Git facts | An existing worktree yields per-file churn, change frequency, authors, timestamps, rename lineage, deletion state, and change concentration/dispersion. |
+| Honest risk score | The engine is deterministic, exposes formula/profile/contributions/limitations, and excludes explicitly unavailable metrics rather than presenting them as observed facts. |
+| Human workflow | The frontend shows the direct three-step static → Git → Hotspot flow and only renders API responses; it has no saved-run, report, or export UI. |
 
-## Package layout and dependency direction
+A Hotspot score is not a defect, security, runtime, coverage, or incident prediction.
+
+## 2. Component model and dependency direction
+
+```text
+frontend (React + Vite, RTL)
+       │ relative /api/v1 requests
+       ▼
+internal/api (HTTP, validation, safe errors, OpenAPI, Swagger assets)
+       ├──────────► application/static_analysis
+       │                 └── analyzer/static (Tree-sitter parsing)
+       ├──────────► githistory (fixed read-only Git commands)
+       └──────────► scoring (deterministic risk-v1 engine)
+                         ▲
+                       domain (contracts and values only)
+```
 
 ```text
 backend/
-├── cmd/server/                         # local composition root and flags
+├── cmd/server/                 # flags, allowed-root policy, guarded services, HTTP lifecycle
 └── internal/
-    ├── domain/                         # analysis, Git, risk, lifecycle records
-    ├── application/                    # static use case, orchestrator, RunStore port
-    ├── repositoryscan/                 # local path validation and safe discovery
-    ├── analyzer/static/                # Go/JS/Python source parsing and metrics
-    ├── githistory/                     # read-only Git traversal and aggregation
-    ├── scoring/                        # deterministic risk-v1 calculation
-    ├── infrastructure/sqlite/          # embedded migration and SQLite RunStore
-    ├── storage/failedfiles/            # process-local static failure registry
-    └── api/                            # HTTP handlers and embedded OpenAPI
+    ├── analysisguard/          # canonical local-path policy and resource limits
+    ├── analyzer/static/        # Go, JavaScript and Python static parser/metrics
+    ├── application/            # explicit-file static use case and static/Git input join helper
+    ├── domain/                 # analysis, Git and risk value contracts
+    ├── githistory/             # read-only local Git-history analyzer
+    ├── scoring/                # risk-v1 score/rank/module/heatmap calculation
+    ├── storage/failedfiles/    # process-local safe parser/read failure registry
+    └── api/                    # direct HTTP routes, OpenAPI and locally served Swagger UI
 ```
 
-The domain package imports no HTTP, database, Git, or parser implementation. The application package depends on ports for project discovery, Git analysis, risk calculation, and `RunStore`. SQLite is wired only in `cmd/server`; the HTTP handler calls the orchestrator but does not contain discovery, scoring, or persistence rules.
+`domain` has no HTTP, filesystem, parser, process, or UI dependency. `scoring` does not read files or invoke Git. The HTTP layer validates JSON and maps errors but does not calculate static metrics, Git facts, or scores. There is no repository scanner or persistence layer in this version.
 
-## Local project scope and discovery
+## 3. Direct data flow
 
-`repositoryscan.Scanner.Resolve` requires an accessible absolute directory, canonicalizes symlinks, and independently records:
+1. **Static request** — the caller sends one allowed absolute `rootPath` and selected relative file names to `POST /static-analysis`.
+2. **Static analysis** — the service resolves the root, validates each relative path stays below it, reads at most configured byte limits, and parses supported source text. It returns per-file results and directory module aggregates. Parser/read errors become file diagnostics and safe process-local failure metadata.
+3. **Git request** — the caller sends the absolute worktree location and optional inclusive RFC 3339 history bounds to `POST /git-analysis`.
+4. **Git analysis** — the service confirms a local worktree and runs fixed `git log`, `git diff-tree --name-status`, and `git diff-tree --numstat` commands with `GIT_OPTIONAL_LOCKS=0`. It does not write to the worktree, index, refs, or remotes.
+5. **Risk request** — the caller supplies the relevant static and Git values to `POST /risk-analysis`. The scoring engine validates fields and calculates ranking/contributions/modules/heatmap data.
+6. **Frontend** — the workspace retains each response in memory for the current page. It asks the backend to calculate the score and displays returned values. Refreshing the page clears the unsaved results by design.
 
-- `ProjectPath`: exactly the selected static-analysis directory;
-- `GitRepositoryRoot`: enclosing worktree root when available;
-- `GitRelativeScope`: selected project path relative to the Git root;
-- `ScopeKey`: the Git root for a worktree or canonical project path otherwise.
+The current direct contract is intentionally composable: consumers can call the three analytical endpoints individually. It does not perform recursive discovery or automatically persist/join an entire project run.
 
-`ScopeKey` is the duplicate-analysis boundary. This prevents overlapping active analyses for one repository while allowing independent projects to run concurrently.
+## 4. Static analysis design
 
-Discovery never executes target code. For a Git worktree, it uses `git ls-files --cached --others --exclude-standard -z` with the selected scope path. Without Git it walks the local tree with an independent `.gitignore` matcher. Both routes retain only safe project-relative regular files with supported extensions (`.go`, `.js`, `.mjs`, `.cjs`, `.py`), reject binary/out-of-project/unsafe symlink targets, and skip Git/dependency/build/cache directories. Git discovery is scoped to the selected directory even when the project is a subdirectory of the worktree.
+The static analyzer supports Go, JavaScript and Python. It returns:
 
-## Analysis lifecycle
+- physical non-blank, non-comment lines of code;
+- function/method and class counts;
+- maximum and total declaration lengths;
+- declaration locations;
+- language, explicit status, fallback marker, and diagnostics; and
+- directory-level aggregates of returned file results.
 
-A persisted `AnalysisRun` has exactly one overall status:
+Files can be `analyzed`, `empty`, `no_executable_code`, `fallback`, `parse_error`, `unsupported`, or `read_error`. A malformed or unreadable selected file does not invent metrics and does not erase successful file results.
 
-```text
-queued → running → completed
-                 ↘ failed
-                 ↘ cancelled
-```
+## 5. Git-history design
 
-Operational progress is represented separately by `currentStage` and five independent stage snapshots:
+With no date bounds, Git analysis examines commits reachable from `HEAD`. `history.from` and `history.to` are optional inclusive UTC bounds. The response distinguishes empty or shallow history through diagnostics.
 
-1. `validation`
-2. `discovery`
-3. `static_analysis`
-4. `git_analysis`
-5. `risk_scoring`
+For every observed path identity, the analyzer reports added-plus-deleted line churn, distinct affecting commits, author count, first/last change times, previous paths for renames, deletion state, and monthly change concentration/dispersion. It invokes no project hooks or target commands.
 
-A stage can be `pending`, `running`, `completed`, `unavailable`, `failed`, `cancelled`, or `skipped`. This lets a completed overall run truthfully show an unavailable Git stage or a static per-file parser failure.
+## 6. `risk-v1` model
 
-### Orchestration flow
+The requested default profile is:
 
-1. **Start** validates a local path, optional history range, and optional scoring profile; resolves scope; writes a `queued` run; and returns immediately with an opaque ID.
-2. **Bounded execution** acquires one slot from the configured in-process semaphore, moves the run to `running`, and records validation/discovery progress.
-3. **Discovery** produces a safe static file list plus diagnostics. Discovery infrastructure failure fails the run; per-file exclusions are diagnostics.
-4. **Parallel analysis** starts static analysis and, when available, Git history analysis concurrently. Static progress is persisted after each file attempt. Git uses the enclosing repository and `GitRelativeScope`, then rebases retained result paths to `ProjectPath`.
-5. **Partial outcomes** preserve static results even when Git history is unavailable. Git stage errors become an `unavailable` stage plus diagnostics; they do not turn valid static work into a failed run. Static file read/parser errors remain file-scoped diagnostics and do not discard other files.
-6. **Scoring** joins only valid static files with any available Git facts. It scores using only available metric identities and writes coverage/requested/effective profile metadata.
-7. **Finalization** atomically writes the immutable report and transitions the row from `running` to `completed` in SQLite.
+| Metric | Identifier | Weight |
+| --- | --- | ---: |
+| Lines of code | `lines_of_code` | 0.15 |
+| Maximum function length | `max_function_length` | 0.25 |
+| Maximum class length | `max_class_length` | 0.10 |
+| Git churn | `git_churn` | 0.25 |
+| Change frequency | `change_frequency` | 0.25 |
 
-Cancellation uses a per-run context. It is observed while waiting for a worker slot, during discovery, between static files, and by context-aware Git commands. Cancellation changes any running stage to `cancelled`, records a safe diagnostic, and never exposes a partial run as a completed report.
-
-## Static and Git analysis
-
-Static analysis calculates lines of code, function/class counts, maximum/total function length, and maximum/total class length. It does not claim cyclomatic complexity. Parser/read failures are represented explicitly with file status and diagnostics; successful files remain available for aggregation.
-
-The Git analyzer uses read-only `git log` and `git diff-tree` data. It calculates per-file Git churn, change frequency, author count, first/last change timestamps, path rename continuity, deletion status, and monthly change concentration/dispersion. A `ScopePath` is internal-only and prevents a selected subdirectory from inheriting facts from sibling directories.
-
-No Git worktree, a broken history operation, or zero selected history makes Git-derived metrics unavailable. It does not make the project invalid or force an overall failure.
-
-## Risk-v1 model and availability
-
-The default requested profile is:
-
-| Metric | Requested weight |
-| --- | ---: |
-| lines of code | 0.15 |
-| maximum function length | 0.25 |
-| maximum class length | 0.10 |
-| Git churn | 0.25 |
-| change frequency | 0.25 |
-
-For each available metric, the engine applies nearest-rank 95th-percentile normalization over the current run's eligible files, caps values at `1`, and calculates:
+For the file population in a request, each available metric uses its nearest-rank 95th-percentile value as a cap. A raw value is divided by that cap and capped at `1`. The engine computes:
 
 ```text
 round(100 × Σ(effectiveWeight(metric) × normalized(metric, file)))
 ```
 
-The engine validates metric identities, profiles, and heatmap axes. When a caller provides an availability set, only those metrics contribute; positive requested weights are renormalized over that set. With static-only default scoring, the effective weights are `0.30`, `0.50`, and `0.20` for lines of code, max function length, and max class length. The risk report contains requested/effective profiles plus available/unavailable metric lists and contribution details, so a score does not imply unavailable Git data was zero.
+It assigns low (`0–34`), medium (`35–64`), or high (`65–100`) level, ranks by score then path, aggregates modules, and prepares backend-owned heatmap cells. Every returned contribution has raw value, cap, normalized value, effective weight, and weighted value.
 
-Risk is a review/refactoring priority, not a defect, incident, security, coverage, or runtime prediction.
+When `availableMetrics` is supplied, metrics outside that set are explicitly unavailable and positive weights are renormalized only over the selected metrics. For the default static-only set, effective weights are LOC `0.30`, maximum function length `0.50`, and maximum class length `0.20`. This capability handles missing Git facts honestly; it does not infer them from zero.
 
-## SQLite persistence and restart behavior
+## 7. Security and operating limits
 
-`infrastructure/sqlite.Store` applies an embedded schema migration, enables foreign keys/WAL/busy timeout, and implements the application `RunStore` port. It persists:
+At server startup, `cmd/server` builds a canonical `analysisguard.PathPolicy` from repeatable `-allowed-root` flags. If omitted, the current user's home directory is the default. The production static and Git services both use this policy. `NewHandler` and unguarded constructors exist only for in-process unit tests and embedding; they are not the server configuration path.
 
-- canonical internal scope data and active-scope uniqueness;
-- lifecycle status, timestamps, stage snapshots, progress, profile/history, and safe diagnostics;
-- completed summary and complete static/Git/risk artifacts as immutable report JSON.
+| Bound | Default | Flag |
+| --- | ---: | --- |
+| Explicit source files per static request | 10,000 | `-max-files` |
+| One source file | 2 MiB | `-max-file-bytes` |
+| Source bytes per static request | 128 MiB | `-max-total-source-bytes` |
+| Git commits | 20,000 | `-max-git-commits` |
+| Output retained by one Git command | 16 MiB | `-max-git-output-bytes` |
 
-The `analysis_runs(scope_key)` partial unique index applies only to `queued`/`running` rows. A report insertion and run transition to `completed` are one database transaction, so a completed row cannot survive without its report. During store startup, interrupted `queued`/`running` rows are marked `failed` with `BACKEND_RESTARTED`; jobs are not silently resumed.
+The HTTP server also has header/read/write/idle timeouts. Safe API errors never return source bytes, parser internals, absolute host paths, or Git command output. Development CORS is permissive without credentials for the relative/proxied UI workflow and must be restricted before exposing the server beyond a local development environment.
 
-## HTTP API and report projection
+## 8. Test data and verification
 
-`cmd/server` constructs SQLite, scanner, static analyzer, Git analyzer, risk engine, and `application.Orchestrator`, then passes the service to the HTTP handler. Existing synchronous static/Git/risk endpoints remain unchanged. Additive lifecycle and report routes are:
+The backend tests construct real temporary Go/JavaScript/Python source text and temporary Git worktrees with commits, renames, deletions, date ranges, malformed inputs, path boundaries, and resource-limit cases. Tests do not execute fixture source. HTTP tests use `httptest` and direct JSON payloads.
 
-```text
-POST /api/v1/analyses
-GET  /api/v1/analyses
-GET  /api/v1/analyses/{analysisId}
-POST /api/v1/analyses/{analysisId}/cancel
-GET  /api/v1/analyses/{analysisId}/summary
-GET  /api/v1/analyses/{analysisId}/hotspots
-GET  /api/v1/analyses/{analysisId}/files
-GET  /api/v1/analyses/{analysisId}/files/detail?path=...
-GET  /api/v1/analyses/{analysisId}/modules
-GET  /api/v1/analyses/{analysisId}/heatmap
-GET  /api/v1/analyses/{analysisId}/report
-GET  /api/v1/analyses/{analysisId}/export?format=json|csv
-```
+Frontend tests mock only transport responses to verify that the page renders API results and sends relative direct requests; score computation remains server-owned. The frontend production build, type-check, and Vitest suite are part of the phase-only quality gate.
 
-The application result-query layer is intentionally read-only: it gets one persisted completed report, builds a project-relative file join across static/Git/risk artifacts, filters/sorts/paginates a copy, and returns typed projection views. It never calls analyzers or rescoring logic. Missing optional artifacts stay absent rather than becoming zero facts. The full report and JSON export retain the immutable persisted document; CSV serializes the deterministic static-file list and neutralizes formula-leading path values.
+Run the full commands in [README.md](../README.md#verify). Host-scale timing/RSS and empirical defect-prediction validation are not claimed; see [qa-final-evaluation.md](qa-final-evaluation.md).
 
-The handler validates route/query cardinality, bounds, enums, safe relative paths, and export format before calling the application layer. Query errors are `400 VALIDATION_ERROR`; views unavailable before successful report finalization are `409 RESULT_UNAVAILABLE`; a requested file not present in the stored report is `404 ANALYSIS_FILE_NOT_FOUND`.
+## 9. Explicitly deferred
 
-During the current development phase, CORS permits requests from every browser origin without credentials. Requests with an `Origin` header receive a wildcard CORS response for `GET`, `POST`, and `OPTIONS` using `Content-Type`. This temporary policy must be restricted to same-origin or explicit trusted origins before a public release. Security middleware continues to emit conservative no-store, MIME, frame, referrer, cross-origin-resource, and CSP headers.
-
-The detailed request/response contract is in [`api-contract.md`](api-contract.md), and the embedded OpenAPI 3.1 definition is linted as part of delivery.
-
-## Verification strategy
-
-Focused tests cover scanner scope/ignore/binary behavior, availability-aware scoring, SQLite uniqueness/restart/report persistence, orchestration of non-Git/static-only/Git-subdirectory/cancellation/partial-Git cases, lifecycle HTTP start/poll/report/error behavior, real HTTP completed-view/export request flows, CORS policy/security headers, report-query pagination/filter/sort boundaries, unavailable-result states, and CSV-injection protection. Standard Go formatting and `go test ./...` remain required release gates; the current Arena sandbox does not provide a Go executable, so those commands must run in a Go-enabled environment before a release is claimed.
-
-## Deferred capabilities
-
-Remote cloning, authentication, distributed execution, project code execution, TypeScript support, cyclomatic complexity, named profile management, deletion, custom re-aggregation of stored views, and the frontend dashboard are outside this implemented increment.
+This phase-only architecture does not include recursive discovery, analysis queues, cancellation, concurrency scheduling, SQLite or another run store, restart recovery, lifecycle routes, saved reports, result query/filter APIs, export, dashboards, comparison, remote cloning, TypeScript parsing, or target-project code execution. Those later capabilities are intentionally available only in the complete-product branch.

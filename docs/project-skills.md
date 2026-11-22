@@ -20,9 +20,9 @@ The test is written before implementation except for mechanical project bootstra
 | Domain/scoring | Unit tests for metric validity, weight/profile validation, normalization, score rounding, risk bands, and missing-data policy |
 | Static analysis | Real Go, JavaScript, and Python source fixtures with independently asserted metrics; fixtures are parsed but never executed |
 | Git analysis | Temporary local Git repositories with real commits and diffs for all-history/default scope, date limits, additions, deletions, and rename behavior |
-| API/application | Integration tests through the HTTP contract against a local fixture repository, including invalid paths, lifecycle states, errors, and exports |
-| Frontend | Component, accessibility, and browser tests that consume contract-compliant API results; dashboard capability claims require an implemented backend result |
-| Security/reliability | Tests for no target-repository writes, safe path validation, cancellation, resource limits, and parse/unsupported-file reporting |
+| API/application | Integration tests through the HTTP contract against local fixture files and repositories, including invalid paths, errors, and resource limits |
+| Frontend | Component and accessibility tests that consume contract-compliant API results; every displayed analytical value requires an implemented backend result |
+| Security/reliability | Tests for no target-repository writes, safe path validation, resource limits, and parse/unsupported-file reporting |
 
 ### No fabricated completion
 
@@ -38,10 +38,9 @@ UI/UX Pro Max means building a clear, robust, accessible local analytical tool r
 ### Product experience principles
 
 1. **Explain before visualizing.** Make local-only behavior, selected history range, scoring-profile version, and risk-score limitations visible before users interpret a result.
-2. **Prioritize action.** The dashboard starts with the highest-risk files and a concise explanation of *why* each ranks there; it does not bury action behind decorative visualizations.
-3. **Preserve user context.** Search, filters, sort, heatmap axes, selection, and comparison state are visible, reversible, and represented in the URL or local UI state as appropriate.
-4. **Reveal detail on demand.** Keep the overview scannable; provide an accessible detail panel for raw metrics, score contributions, diagnostics, and export scope.
-5. **Never imply certainty.** Use precise language: risk is a prioritization signal, not a defect prediction. Show unavailable and partial-analysis states honestly.
+2. **Prioritize action.** Results start with the highest-risk files and a concise explanation of *why* each ranks there; they do not bury action behind decorative visualizations.
+3. **Reveal detail on demand.** Keep the overview scannable; provide accessible detail for raw metrics, score contributions, and diagnostics.
+4. **Never imply certainty.** Use precise language: risk is a prioritization signal, not a defect prediction. Show unavailable and partial-analysis states honestly.
 
 ### Required interaction states
 
@@ -49,11 +48,10 @@ Every feature with data must design and test all of the following:
 
 - initial/empty state with a clear next action;
 - local repository-path validation and permission/access errors;
-- staged analysis progress with counts and cancellation;
+- in-flight request state while an analysis call is running;
 - completed data state;
-- no-match search/filter state with reset action;
 - parse errors, unsupported files, and partial diagnostics;
-- terminal failed/cancelled state with actionable recovery;
+- API failure state with actionable recovery;
 - responsive narrow and wide layouts; and
 - keyboard-only and screen-reader workflows.
 
@@ -63,21 +61,19 @@ Every feature with data must design and test all of the following:
 - Use semantic landmarks, real buttons/inputs/labels, predictable heading order, and native focus behavior.
 - Ensure full keyboard operation, visible focus, logical tab order, escape/close behavior, and focus restoration for overlays or detail panels.
 - Do not encode risk solely by color. Pair every band with text, icons/patterns where applicable, and programmatic labels.
-- Provide a tabular/text alternative for the heatmap with the same file, axis, and risk information.
-- Meet contrast requirements, honor reduced-motion preferences, and announce analysis progress/status without excessive interruption.
+- Ranking and result tables must expose the same file, metric, and risk information that any visual presentation would, so no essential result is available only through a chart or on hover.
+- Meet contrast requirements, honor reduced-motion preferences, and announce request progress/status without excessive interruption.
 - Render untrusted paths and diagnostics as text, not HTML.
 
-### Data visualization requirements
+### Result presentation requirements
 
-- A heatmap must expose selectable axes, a legend with numerical ranges, accessible tooltips/details, and an equivalent sortable table.
-- Ranking rows must show path, risk band/score, key drivers, and a clear route to full metrics.
+- Ranking rows must show path, risk band/score, key drivers, and score contributions returned by the backend.
 - Numeric formats, units, zero, unavailable, and outlier values must be unambiguous.
-- Charts must retain meaningful labels and navigation when resized; no essential result is available only on hover.
-- CSV/JSON export clearly identifies the analysis timestamp, history window, and score model used.
+- Tables must retain meaningful labels and navigation when resized.
 
 ### UI quality gate
 
-A dashboard task is complete only when its implementation has been reviewed at supported viewport sizes, keyboard navigation has been exercised, automated accessibility checks pass, and it renders a real completed backend analysis in an end-to-end test. Screenshot-perfect mock data is not evidence of a completed analytic feature.
+A UI task is complete only when its implementation has been reviewed at supported viewport sizes, keyboard navigation has been exercised, and it renders real backend responses in tests. Screenshot-perfect mock data is not evidence of a completed analytic feature.
 
 ## 3. Shared quality gates
 
@@ -89,5 +85,5 @@ Before declaring any capability complete:
 - [ ] API behavior matches the documented contract where applicable;
 - [ ] UI logic does not calculate backend-owned metrics or risk;
 - [ ] relevant tests were run and their output reviewed;
-- [ ] error, cancellation, and unsupported/partial cases are truthful; and
+- [ ] error and unsupported/partial cases are truthful; and
 - [ ] documentation has been updated for user-visible behavior.

@@ -1,83 +1,75 @@
-# Code Risk Analyzer
+# Code Risk Analyzer — phases 1–4
 
-A local-first system for identifying software files that deserve earlier review or refactoring attention. Given the **local path** to a valid Git repository, it statically analyzes Go, JavaScript, and Python source and reads its Git history. It combines implemented code-shape and change-history metrics into an explainable, configurable risk score.
+This branch is the phase-only deliverable for the first half of the project. It is a local-first workspace that reads selected source files and an existing Git worktree, then returns an explainable Hotspot ranking.
 
-> **Project status — backend analysis and scoring increment**
->
-> The local Go backend now provides tested static analysis, Git-history analysis, and an explainable Risk Engine. The Next.js + TypeScript UI remains a foundation only: it does not display fabricated dashboard data or calculate analytical values.
+> The complete, later product—including repository discovery, durable analysis runs, SQLite persistence, reports, dashboards, filters, and exports—intentionally remains on `main` and `output-3-project`. It is not part of this branch.
 
-## What the product will do
+## Delivered phases
 
-- Analyze a repository that already exists on the same machine as the backend.
-- Inspect source **statically**; it will never execute the target repository's code.
-- Analyze the complete Git history by default, with optional inclusive start and end times.
-- Support Go, JavaScript, and Python in the MVP.
-- Collect per-file metrics including:
-  - static lines of code (LOC);
-  - maximum function and class length;
-  - Git churn (added plus deleted lines); and
-  - change frequency (distinct commits affecting a file).
-- Normalize and combine the implemented static and Git metrics with a versioned, locally configurable scoring profile.
-- Present a dashboard with a two-dimensional heatmap, ranked files, metric details, search and filters, comparisons, and JSON/CSV export.
+| Phase | Delivered outcome | Acceptance evidence |
+| --- | --- | --- |
+| 1. تحلیل نیازمندی‌ها و طراحی معیارهای پذیرش | Local-only, static-only and read-only-Git boundaries; supported languages, metrics, score limitations, and API acceptance criteria are documented. | [`docs/architecture.md`](docs/architecture.md), [`docs/api-contract.md`](docs/api-contract.md), focused API tests |
+| 2. طراحی معماری و آماده‌سازی داده آزمون | A bounded Go composition root, direct HTTP contract, parser fixtures, temporary local files, and temporary Git repositories establish the testable architecture. | package tests under `backend/internal`, embedded OpenAPI 3.1 document |
+| 3. پیاده‌سازی هسته تحلیل ایستا با Go برای Python، Go و JavaScript | The backend statically parses explicitly named `.go`, `.js`/`.mjs`/`.cjs`, and `.py` files and returns file/module metrics and safe diagnostics. | `analyzer/static`, `application/static_analysis`, `/static-analysis` tests |
+| 4. پیاده‌سازی تحلیل تاریخچه Git و Score Hotspot | The backend reads existing Git history without modifying it and calculates deterministic, availability-aware `risk-v1` Hotspot scores. | `githistory`, `scoring`, `/git-analysis` and `/risk-analysis` tests |
 
-A risk score is a prioritization aid for review and refactoring—not a claim that a file contains a bug.
+The React + TypeScript frontend is included for these same phases. Its one workspace calls the direct local API, displays static and Git results, and requests the backend-owned risk calculation; it does not fabricate dashboard data or calculate scores in the browser.
 
-## Local-only and safety guarantees
+## Scope and non-goals
 
-- The Go backend runs on the machine that holds the repository being analyzed.
-- The browser sends a repository path only to that local backend over loopback; source code and repository paths are never submitted to a cloud service.
-- The system accepts an existing local Git repository path. It does not clone repositories or execute target code.
-- Git inspection will be read-only. Analysis will never modify the target repository, its worktree, index, commits, branches, or remote configuration.
-- The frontend only renders API data and user-selected filters. It does not compute metrics or risk scores.
+### In scope
 
-## Project structure
+- Local paths only, constrained by operator-configured allowed roots.
+- Static parsing only; the target project is never built, imported, tested, or executed.
+- Explicit file selection for Go, JavaScript, and Python.
+- Read-only Git history analysis for an existing worktree, with optional date bounds.
+- Deterministic Hotspot scores, ranking, module aggregates, heatmap data, metric contributions, and limitations.
+- A Persian RTL frontend for the direct three-step workflow.
+
+### Deliberately absent on this branch
+
+- Recursive repository scanning/discovery and `.gitignore` processing.
+- Queued or asynchronous analysis lifecycle, cancellation, persistence, SQLite, or restart recovery.
+- Saved report/result query routes, dashboard pages, server-side filters, comparisons, CSV/JSON export, and settings screens.
+- Remote repositories, cloning, source upload, target-code execution, TypeScript parsing, defect prediction, coverage, security scanning, or cyclomatic complexity.
+
+A score is a review/refactoring priority signal, **not** a claim that a file contains a defect.
+
+## Architecture at a glance
 
 ```text
-.
-├── backend/                 # Independent Go module and local API service
-│   ├── cmd/server/          # Composition root and graceful HTTP server
-│   └── internal/api/        # Tested local HTTP boundary
-├── frontend/                # Independent Next.js + TypeScript application
-│   ├── app/                 # App Router layout and foundation screen
-│   └── test/                # Vitest and Testing Library setup
-├── docs/
-│   ├── architecture.md      # Component, data-flow, and deployment design
-│   ├── api-contract.md      # Versioned HTTP contract before dashboard work
-│   └── project-skills.md    # Mandatory TDD and UI/UX standards
-└── README.md
+Browser (React/Vite, relative /api/v1 requests)
+                 │
+                 ▼
+Go local HTTP API
+  ├── static analysis: selected files → metrics/diagnostics
+  ├── Git history: existing worktree → per-file change facts
+  └── risk engine: supplied analytical facts → Hotspot report
 ```
 
-`backend/` and `frontend/` have independent dependency manifests and test commands. The browser only calls relative API paths; Next.js proxies `/api/*` to the local Go process on `127.0.0.1:8080` during development.
-
-## Prerequisites
-
-| Dependency | Required version | Purpose |
-| --- | --- | --- |
-| Git | 2.30+ | Read a local repository's commit history and diffs |
-| Go | 1.23+ | Build and test the backend |
-| Node.js | 22.12+ | Build and test the Next.js frontend |
-| npm | Bundled with Node.js | Install locked frontend dependencies |
-| A local Git repository | Any valid repository path | Future analysis input; it is never uploaded |
+The development server proxies relative `/api/...` requests to the Go API on the same machine. The browser never calls `localhost` itself and no source is sent to a cloud service.
 
 ## Run locally
 
-Start the two local processes in separate terminals.
+### Prerequisites
 
-**Terminal 1 — Go API**
+| Dependency | Version | Why |
+| --- | --- | --- |
+| Go | 1.23+ | Build and test the local backend |
+| A C compiler with CGO | GCC or Clang | Build pinned Tree-sitter grammars |
+| Git | 2.30+ | Read local commit history and diffs |
+| Node.js / npm | Node 22+ recommended | Build and test the frontend |
+
+Start the backend, limiting it to the smallest parent directory that holds projects you plan to inspect:
 
 ```bash
 cd backend
-go run ./cmd/server
+go run ./cmd/server -allowed-root "$HOME/workspaces"
 ```
 
-The API binds to `127.0.0.1:8080`. Verify the implemented health capability:
+Useful direct-analysis limits are `-max-files`, `-max-file-bytes`, `-max-total-source-bytes`, `-max-git-commits`, and `-max-git-output-bytes`. The server listens on `127.0.0.1:8080` unless `-addr` is supplied.
 
-```bash
-curl http://127.0.0.1:8080/api/v1/health
-# {"status":"ok","version":"0.1.0"}
-```
-
-**Terminal 2 — Next.js UI**
+In another terminal, start the frontend:
 
 ```bash
 cd frontend
@@ -85,46 +77,54 @@ npm install
 npm run dev
 ```
 
-Open the URL Next.js prints (normally `http://localhost:3000`). The foundation page contains no fabricated analysis data. Its **Check local API health** link uses a relative route and is proxied by Next.js to the Go service.
+Open the Vite URL, enter an allowed absolute local path and relative source files, then optionally analyze its Git history and request a Hotspot score.
 
-## Test and build
+## Direct API surface
+
+The complete machine-readable contract is embedded at [`backend/internal/api/openapi.yaml`](backend/internal/api/openapi.yaml).
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/health` | Local service status/version |
+| `GET` | `/api/v1/openapi.yaml` | Embedded OpenAPI 3.1 document |
+| `POST` | `/api/v1/static-analysis` | Analyze explicitly selected relative source files |
+| `GET` | `/api/v1/static-analysis/failures` | Process-local safe parser/read failure metadata |
+| `POST` | `/api/v1/git-analysis` | Read local Git history facts |
+| `POST` | `/api/v1/risk-analysis` | Calculate backend-owned Hotspot scores |
+| `GET` | `/swagger/` | Locally served Swagger UI |
+
+See [`docs/api-contract.md`](docs/api-contract.md) for examples, safety rules, error behavior, and scoring semantics.
+
+## Verify
 
 ```bash
-# Backend
+# Go backend
 cd backend
+gofmt -w $(find . -name '*.go' -not -path './vendor/*')
 go test ./...
 
-# Frontend
+# React frontend
 cd ../frontend
+npm ci
 npm run typecheck
-npm test
+npm test -- --run
 npm run build
+
+# OpenAPI document
+cd ..
+npx @redocly/cli@1.34.5 lint backend/internal/api/openapi.yaml
 ```
 
-## Implemented now vs. next
+The repository CI runs `go test ./...` for backend changes. The current Arena sandbox does not include a native Go toolchain, so Go test results must come from a Go-enabled environment or the GitHub Actions check.
 
-| Capability | Status |
-| --- | --- |
-| Local Go service startup and graceful shutdown | Implemented |
-| `GET /api/v1/health` API contract endpoint | Implemented and unit-tested |
-| Next.js TypeScript application startup | Implemented |
-| Relative API proxy to the same-machine Go API | Implemented |
-| Foundation UI with local-only boundary messaging | Implemented and component-tested |
-| Local path validation for selected static files | Implemented and unit-tested |
-| Static metrics for Go, JavaScript, and Python | Implemented and unit-tested |
-| Read-only Git history metrics, including full-history default | Implemented and unit-tested |
-| Explainable per-file Risk Engine, ranking, module aggregates, and heatmap data | Implemented and unit-tested |
-| Analysis jobs, discovery, storage, dashboard, search/filter/compare, and export | Next increments |
+## Further reading
 
-## Architecture and engineering standards
-
-Read these documents before implementation work:
-
-- [Overall architecture](docs/architecture.md) — boundaries, data flow, metrics, scoring, security, testing, and UX direction.
-- [API contract](docs/api-contract.md) — endpoint behavior and schemas that backend work must satisfy before dashboard work begins.
-- [Project skills](docs/project-skills.md) — mandatory TDD and UI/UX Pro Max practices.
-
-A stage is not complete until its real implementation, tests, and results have been reviewed.
+- [Architecture and acceptance criteria](docs/architecture.md)
+- [Direct local API contract](docs/api-contract.md)
+- [Phase-only QA evidence and remaining measurements](docs/qa-final-evaluation.md)
+- [Backend usage and limits](backend/README.md)
+- [Frontend workspace usage](frontend/README.md)
+- [Engineering standards](docs/project-skills.md)
 
 ## License
 

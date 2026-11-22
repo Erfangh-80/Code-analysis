@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -19,13 +18,10 @@ import (
 	"github.com/Erfangh-80/code-analysis/backend/internal/api"
 	"github.com/Erfangh-80/code-analysis/backend/internal/application"
 	"github.com/Erfangh-80/code-analysis/backend/internal/githistory"
-	"github.com/Erfangh-80/code-analysis/backend/internal/infrastructure/sqlite"
-	"github.com/Erfangh-80/code-analysis/backend/internal/repositoryscan"
-	"github.com/Erfangh-80/code-analysis/backend/internal/scoring"
 	"github.com/Erfangh-80/code-analysis/backend/internal/storage/failedfiles"
 )
 
-const version = "0.1.0"
+const version = "0.1.0-core"
 
 type pathList []string
 
@@ -42,13 +38,6 @@ func (paths *pathList) Set(value string) error {
 	return nil
 }
 
-func defaultDatabasePath() string {
-	if dataDirectory, err := os.UserConfigDir(); err == nil && dataDirectory != "" {
-		return filepath.Join(dataDirectory, "code-risk-analyzer", "analyses.db")
-	}
-	return filepath.Join(".", "code-risk-analyzer", "analyses.db")
-}
-
 func defaultAllowedRoot() (string, error) {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		return home, nil
@@ -63,14 +52,11 @@ func defaultAllowedRoot() (string, error) {
 func main() {
 	defaults := analysisguard.DefaultLimits()
 	address := flag.String("addr", "127.0.0.1:8080", "local HTTP listen address")
-	dataPath := flag.String("data", defaultDatabasePath(), "local SQLite analysis database path")
-	maxConcurrentRuns := flag.Int("max-concurrent-runs", 2, "maximum local project analyses running at once")
-	maxFiles := flag.Int("max-files", defaults.MaxFiles, "maximum source files considered in one analysis")
+	maxFiles := flag.Int("max-files", defaults.MaxFiles, "maximum source files accepted in one static-analysis request")
 	maxFileBytes := flag.Int64("max-file-bytes", defaults.MaxFileBytes, "maximum bytes read from one source file")
-	maxTotalSourceBytes := flag.Int64("max-total-source-bytes", defaults.MaxTotalSourceBytes, "maximum total source bytes read in one analysis")
+	maxTotalSourceBytes := flag.Int64("max-total-source-bytes", defaults.MaxTotalSourceBytes, "maximum total source bytes read in one static-analysis request")
 	maxGitCommits := flag.Int("max-git-commits", defaults.MaxGitCommits, "maximum commits inspected in one Git analysis")
 	maxGitOutputBytes := flag.Int64("max-git-output-bytes", defaults.MaxGitOutputBytes, "maximum output retained from one Git command")
-	analysisTimeout := flag.Duration("analysis-timeout", defaults.AnalysisTimeout, "maximum wall-clock duration for one queued or running analysis")
 	var allowedRoots pathList
 	flag.Var(&allowedRoots, "allowed-root", "absolute directory allowed for local analysis; repeat to allow more roots (defaults to the current user's home directory)")
 	flag.Parse()
@@ -88,7 +74,6 @@ func main() {
 		MaxTotalSourceBytes: *maxTotalSourceBytes,
 		MaxGitCommits:       *maxGitCommits,
 		MaxGitOutputBytes:   *maxGitOutputBytes,
-		AnalysisTimeout:     *analysisTimeout,
 	}).Normalize()
 	if err != nil {
 		log.Fatalf("configure analysis resource limits: %v", err)
@@ -98,17 +83,7 @@ func main() {
 		log.Fatalf("configure allowed analysis roots: %v", err)
 	}
 
-	store, err := sqlite.Open(*dataPath)
-	if err != nil {
-		log.Fatalf("open local analysis database: %v", err)
-	}
-	defer store.Close()
-
 	failures := failedfiles.NewRegistry()
-	scanner, err := repositoryscan.NewScannerWithGuards(policy, limits)
-	if err != nil {
-		log.Fatalf("configure repository scanner: %v", err)
-	}
 	staticAnalysis, err := application.NewStaticAnalysisServiceWithGuards(static.NewAnalyzer(), failures, policy, limits)
 	if err != nil {
 		log.Fatalf("configure static analysis: %v", err)
@@ -117,19 +92,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("configure Git analysis: %v", err)
 	}
-	orchestrator, err := application.NewOrchestratorWithLimits(
-		store,
-		scanner,
-		staticAnalysis,
-		gitAnalysis,
-		scoring.NewEngine(),
-		*maxConcurrentRuns,
-		limits,
-	)
-	if err != nil {
-		log.Fatalf("configure analysis orchestrator: %v", err)
-	}
-	handler := api.NewHandlerWithServices(version, orchestrator, staticAnalysis, gitAnalysis)
+	handler := api.NewHandlerWithCoreServices(version, staticAnalysis, gitAnalysis)
 
 	server := &http.Server{
 		Addr:              *address,
@@ -142,7 +105,7 @@ func main() {
 
 	serverErrors := make(chan error, 1)
 	go func() {
-		log.Printf("Code Risk Analyzer API %s listening on http://%s", version, *address)
+		log.Printf("Code Risk Analyzer core API %s listening on http://%s", version, *address)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrors <- err
 		}
@@ -161,6 +124,6 @@ func main() {
 			log.Printf("graceful shutdown failed: %v", err)
 			return
 		}
-		log.Print("Code Risk Analyzer API stopped")
+		log.Print("Code Risk Analyzer core API stopped")
 	}
 }

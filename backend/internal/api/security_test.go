@@ -10,7 +10,7 @@ func TestCORSTemporarilyAllowsEveryBrowserOriginAndAppliesSecurityHeaders(t *tes
 	handler := NewHandler("test-version")
 
 	preflight := httptest.NewRecorder()
-	preflightRequest := httptest.NewRequest(http.MethodOptions, "/api/v1/analyses", nil)
+	preflightRequest := httptest.NewRequest(http.MethodOptions, "/api/v1/static-analysis", nil)
 	preflightRequest.Header.Set("Origin", "https://ui.example.test")
 	preflightRequest.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	handler.ServeHTTP(preflight, preflightRequest)

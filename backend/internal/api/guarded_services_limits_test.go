@@ -44,7 +44,7 @@ func TestGuardedHandlerReportsStaticResourceLimitAsRequestTooLarge(t *testing.T)
 	if err != nil {
 		t.Fatalf("new guarded Git service: %v", err)
 	}
-	handler := NewHandlerWithServices("test-version", nil, staticService, gitService)
+	handler := NewHandlerWithCoreServices("test-version", staticService, gitService)
 	payload, err := json.Marshal(map[string]any{"rootPath": root, "files": []string{"one.go", "two.go"}})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
