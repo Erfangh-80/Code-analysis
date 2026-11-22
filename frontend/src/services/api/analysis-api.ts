@@ -8,6 +8,7 @@ import type {
   AnalysisPage,
   AnalysisReport,
   AnalysisRequest,
+  PathValidationResponse,
   AnalysisResultSummary,
   AnalysisStartResponse,
   AnalysisHotspotPage,
@@ -23,7 +24,10 @@ function resultQuery(params: ResultListParams = {}) {
     q: params.q,
     module: params.module,
     riskLevel: params.riskLevel,
+    language: params.language,
     analysisStatus: params.analysisStatus,
+    minScore: params.minScore,
+    maxScore: params.maxScore,
     sort: params.sort,
     direction: params.direction,
   });
@@ -37,6 +41,15 @@ export const analysisApi = {
       `/analyses${buildQuery({ page: params.page ?? 1, pageSize: params.pageSize ?? 50, status: params.status })}`,
       options,
     ),
+
+  validateProjectPath: (projectPath: string, options?: ApiRequestOptions) =>
+    apiRequest<PathValidationResponse>("/analyses/validate-path", {
+      ...options,
+      method: "POST",
+      timeoutMs: 10_000,
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify({ projectPath }),
+    }),
 
   start: (request: AnalysisRequest, options?: ApiRequestOptions) =>
     apiRequest<AnalysisStartResponse>("/analyses", {

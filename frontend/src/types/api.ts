@@ -57,6 +57,10 @@ export interface RiskProfile {
   bands: RiskBands;
 }
 
+export interface PathValidationResponse {
+  valid: true;
+}
+
 export interface AnalysisRequest {
   projectPath: string;
   history?: GitHistoryRange;
@@ -340,7 +344,10 @@ export interface ResultListParams {
   q?: string;
   module?: string;
   riskLevel?: RiskLevel[];
+  language?: SupportedLanguage[];
   analysisStatus?: FileAnalysisStatus[];
+  minScore?: number;
+  maxScore?: number;
   sort?: string;
   direction?: "asc" | "desc";
 }

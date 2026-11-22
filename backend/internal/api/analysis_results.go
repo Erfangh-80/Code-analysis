@@ -176,7 +176,7 @@ func (handler *handler) handleAnalysisExport(response http.ResponseWriter, reque
 	writeAnalysisCSVExport(response, report)
 }
 
-func decodeResultListQuery(request *http.Request, allowAnalysisStatus bool, allowedSorts map[domain.ResultSort]struct{}) (domain.ResultListQuery, error) {
+func decodeResultListQuery(request *http.Request, allowFileFilters bool, allowedSorts map[domain.ResultSort]struct{}) (domain.ResultListQuery, error) {
 	allowedParameters := map[string]struct{}{
 		"page":      {},
 		"pageSize":  {},
@@ -186,8 +186,11 @@ func decodeResultListQuery(request *http.Request, allowAnalysisStatus bool, allo
 		"sort":      {},
 		"direction": {},
 	}
-	if allowAnalysisStatus {
+	if allowFileFilters {
 		allowedParameters["analysisStatus"] = struct{}{}
+		allowedParameters["language"] = struct{}{}
+		allowedParameters["minScore"] = struct{}{}
+		allowedParameters["maxScore"] = struct{}{}
 	}
 	if err := requireOnlyQueryParameters(request, allowedParameters); err != nil {
 		return domain.ResultListQuery{}, err
@@ -253,7 +256,40 @@ func decodeResultListQuery(request *http.Request, allowAnalysisStatus bool, allo
 			query.RiskLevels = append(query.RiskLevels, level)
 		}
 	}
-	if allowAnalysisStatus {
+	if allowFileFilters {
+		seenLanguages := make(map[domain.Language]struct{})
+		for _, value := range request.URL.Query()["language"] {
+			language := domain.Language(value)
+			switch language {
+			case domain.LanguageGo, domain.LanguageJavaScript, domain.LanguagePython, domain.LanguageUnknown:
+			default:
+				return domain.ResultListQuery{}, io.ErrUnexpectedEOF
+			}
+			if _, exists := seenLanguages[language]; !exists {
+				seenLanguages[language] = struct{}{}
+				query.Languages = append(query.Languages, language)
+			}
+		}
+		if _, exists := request.URL.Query()["minScore"]; exists {
+			value, valueErr := singleQueryValue(request, "minScore", true)
+			var minimum int
+			if valueErr != nil || !parseResultPage(value, &minimum, 0, 100) {
+				return domain.ResultListQuery{}, io.ErrUnexpectedEOF
+			}
+			query.MinScore = &minimum
+		}
+		if _, exists := request.URL.Query()["maxScore"]; exists {
+			value, valueErr := singleQueryValue(request, "maxScore", true)
+			var maximum int
+			if valueErr != nil || !parseResultPage(value, &maximum, 0, 100) {
+				return domain.ResultListQuery{}, io.ErrUnexpectedEOF
+			}
+			query.MaxScore = &maximum
+		}
+		if query.MinScore != nil && query.MaxScore != nil && *query.MinScore > *query.MaxScore {
+			return domain.ResultListQuery{}, io.ErrUnexpectedEOF
+		}
+
 		seenStatuses := make(map[domain.AnalysisStatus]struct{})
 		for _, value := range request.URL.Query()["analysisStatus"] {
 			status := domain.AnalysisStatus(value)

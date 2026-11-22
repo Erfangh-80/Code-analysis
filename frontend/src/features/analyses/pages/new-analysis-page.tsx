@@ -6,7 +6,7 @@ import { ApiErrorState } from "@/components/molecules/async-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useStartAnalysisMutation } from "@/hooks/use-analysis-queries";
+import { useStartAnalysisMutation, useValidateProjectPathMutation } from "@/hooks/use-analysis-queries";
 import { fromDateTimeLocal } from "@/lib/analysis";
 import type { RiskMetric } from "@/types/api";
 
@@ -48,6 +48,7 @@ function localPathError(value: string) {
 export function NewAnalysisPage() {
   const navigate = useNavigate();
   const startAnalysis = useStartAnalysisMutation();
+  const validateProjectPath = useValidateProjectPathMutation();
   const [projectPath, setProjectPath] = useState("");
   const [historyFrom, setHistoryFrom] = useState("");
   const [historyTo, setHistoryTo] = useState("");
@@ -88,20 +89,22 @@ export function NewAnalysisPage() {
     }
 
     setFormError(null);
-    startAnalysis.mutate(
-      {
-        projectPath: normalizedPath,
-        history: from || to ? { from: from ?? null, to: to ?? null } : undefined,
-        profile: {
-          version: "risk-v1",
-          weights,
-          bands: { lowMax, mediumMax },
-        },
+    const analysisRequest = {
+      projectPath: normalizedPath,
+      history: from || to ? { from: from ?? null, to: to ?? null } : undefined,
+      profile: {
+        version: "risk-v1",
+        weights,
+        bands: { lowMax, mediumMax },
       },
-      {
-        onSuccess: (response) => navigate(`/analyses/${encodeURIComponent(response.analysis.id)}`),
+    };
+    validateProjectPath.mutate(normalizedPath, {
+      onSuccess: () => {
+        startAnalysis.mutate(analysisRequest, {
+          onSuccess: (response) => navigate(`/analyses/${encodeURIComponent(response.analysis.id)}`),
+        });
       },
-    );
+    });
   }
 
   return (
@@ -128,9 +131,13 @@ export function NewAnalysisPage() {
                   autoComplete="off"
                   placeholder="/workspace/project یا C:\\workspace\\project"
                   value={projectPath}
-                  onChange={(event) => setProjectPath(event.target.value)}
+                  disabled={validateProjectPath.isPending || startAnalysis.isPending}
+                  onChange={(event) => {
+                    setProjectPath(event.target.value);
+                    validateProjectPath.reset();
+                  }}
                   aria-describedby="project-path-hint"
-                  aria-invalid={Boolean(formError && localPathError(projectPath.trim()))}
+                  aria-invalid={Boolean((formError && localPathError(projectPath.trim())) || validateProjectPath.isError)}
                   required
                 />
               </label>
@@ -219,12 +226,13 @@ export function NewAnalysisPage() {
             </section>
 
             {formError && <div className="rounded-lg border border-destructive/25 bg-destructive/7 p-3 text-sm text-destructive" role="alert">{formError}</div>}
-            {startAnalysis.isError && <ApiErrorState error={startAnalysis.error} className="min-h-0" title="مسیر یا تنظیمات تحلیل پذیرفته نشد" />}
+            {validateProjectPath.isError && <ApiErrorState error={validateProjectPath.error} className="min-h-0" title="مسیر پروژه برای سرویس محلی پذیرفته نشد" />}
+            {startAnalysis.isError && <ApiErrorState error={startAnalysis.error} className="min-h-0" title="شروع تحلیل پذیرفته نشد" />}
 
             <div className="flex flex-wrap gap-3 border-t pt-6">
-              <Button type="submit" disabled={startAnalysis.isPending}>
-                {startAnalysis.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <FolderSearch className="size-4" />}
-                {startAnalysis.isPending ? "در حال اعتبارسنجی…" : "اعتبارسنجی و شروع تحلیل"}
+              <Button type="submit" disabled={validateProjectPath.isPending || startAnalysis.isPending}>
+                {validateProjectPath.isPending || startAnalysis.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <FolderSearch className="size-4" />}
+                {validateProjectPath.isPending ? "در حال بررسی مسیر…" : startAnalysis.isPending ? "در حال شروع تحلیل…" : "اعتبارسنجی و شروع تحلیل"}
               </Button>
               <Button type="button" variant="outline" asChild>
                 <Link to="/analyses">

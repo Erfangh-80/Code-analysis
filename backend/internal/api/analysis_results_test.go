@@ -63,7 +63,7 @@ func TestCompletedAnalysisResultEndpointsFilterPaginateAndExport(t *testing.T) {
 		t.Errorf("second hotspot response=%d page=%+v", hotspotsSecond.Code, secondHotspots)
 	}
 
-	filesResponse := getResultAPI(t, handler, "/api/v1/analyses/"+string(id)+"/files?module=cmd&analysisStatus=analyzed&sort=path&direction=asc")
+	filesResponse := getResultAPI(t, handler, "/api/v1/analyses/"+string(id)+"/files?module=cmd&language=go&minScore=0&maxScore=100&analysisStatus=analyzed&sort=path&direction=asc")
 	if filesResponse.Code != http.StatusOK {
 		t.Fatalf("files status = %d; body=%s", filesResponse.Code, filesResponse.Body.String())
 	}
@@ -137,7 +137,7 @@ func TestCompletedAnalysisResultEndpointsFilterPaginateAndExport(t *testing.T) {
 	}
 }
 
-func TestCompletedResultEndpointsOverRealHTTP(t *testing.T) {
+func TestFullAnalysisFlowOverRealHTTPValidatesStartsPollsAndReadsResults(t *testing.T) {
 	project := createResultAPIFixture(t)
 	handler, closeHandler := newResultAPIHandler(t)
 	defer closeHandler()
@@ -188,6 +188,9 @@ func TestAnalysisResultEndpointsRejectInvalidQueriesAndUnknownFiles(t *testing.T
 		"/api/v1/analyses/" + string(id) + "/hotspots?sort=language",
 		"/api/v1/analyses/" + string(id) + "/hotspots?direction=",
 		"/api/v1/analyses/" + string(id) + "/files?unknown=value",
+		"/api/v1/analyses/" + string(id) + "/files?language=ruby",
+		"/api/v1/analyses/" + string(id) + "/files?minScore=101",
+		"/api/v1/analyses/" + string(id) + "/files?minScore=80&maxScore=20",
 		"/api/v1/analyses/" + string(id) + "/files?module=../../outside",
 		"/api/v1/analyses/" + string(id) + "/files/detail?path=../outside.go",
 		"/api/v1/analyses/" + string(id) + "/export?format=xml",
@@ -255,8 +258,24 @@ func startCompletedResultAnalysisOverHTTP(t *testing.T, client *http.Client, bas
 	t.Helper()
 	payload, err := json.Marshal(map[string]string{"projectPath": project})
 	if err != nil {
-		t.Fatalf("marshal HTTP analysis start payload: %v", err)
+		t.Fatalf("marshal HTTP analysis request payload: %v", err)
 	}
+	validationResponse, err := client.Post(baseURL+"/api/v1/analyses/validate-path", jsonContentType, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("POST path validation: %v", err)
+	}
+	var validation struct {
+		Valid bool `json:"valid"`
+	}
+	decodeValidationErr := json.NewDecoder(validationResponse.Body).Decode(&validation)
+	closeValidationErr := validationResponse.Body.Close()
+	if decodeValidationErr != nil || closeValidationErr != nil {
+		t.Fatalf("decode HTTP path validation: decode=%v close=%v", decodeValidationErr, closeValidationErr)
+	}
+	if validationResponse.StatusCode != http.StatusOK || !validation.Valid {
+		t.Fatalf("POST path validation status=%d valid=%t", validationResponse.StatusCode, validation.Valid)
+	}
+
 	response, err := client.Post(baseURL+"/api/v1/analyses", jsonContentType, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatalf("POST analysis: %v", err)

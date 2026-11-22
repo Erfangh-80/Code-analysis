@@ -30,7 +30,10 @@ type ResultListQuery struct {
 	Query            string
 	Module           string
 	RiskLevels       []RiskLevel
+	Languages        []Language
 	AnalysisStatuses []AnalysisStatus
+	MinScore         *int
+	MaxScore         *int
 	Sort             ResultSort
 	Direction        SortDirection
 	Page             int

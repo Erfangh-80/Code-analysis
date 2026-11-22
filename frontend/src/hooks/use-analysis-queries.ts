@@ -79,6 +79,12 @@ export function useAnalysisReportQuery(analysisId: string | undefined, enabled =
   });
 }
 
+export function useValidateProjectPathMutation() {
+  return useMutation({
+    mutationFn: (projectPath: string) => analysisApi.validateProjectPath(projectPath),
+  });
+}
+
 export function useStartAnalysisMutation() {
   const queryClient = useQueryClient();
   return useMutation({
