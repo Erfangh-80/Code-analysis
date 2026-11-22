@@ -1,7 +1,7 @@
 import DateObject from "react-date-object";
 import { describe, expect, it } from "vitest";
 
-import { emptyGitResultCauses, toIsoUtc, validateHistoryRange } from "@/lib/datetime";
+import { emptyGitResultCauses, formatJalali, toIsoUtc, validateHistoryRange } from "@/lib/datetime";
 
 describe("toIsoUtc", () => {
   it("converts a picker value to a Gregorian UTC ISO instant", () => {
@@ -43,6 +43,18 @@ describe("validateHistoryRange", () => {
     const result = validateHistoryRange(null, null, now);
     expect(result.error).toBeUndefined();
     expect(result.warnings).toHaveLength(0);
+  });
+});
+
+describe("formatJalali", () => {
+  it("renders a Gregorian ISO instant in the Jalali calendar", () => {
+    // 2026-01-15 UTC is 25 دی 1404.
+    expect(formatJalali("2026-01-15T10:30:00.000Z")).toMatch(/^۱۴۰۴\/۱۰\/۲۵ /);
+  });
+
+  it("returns a placeholder for missing values", () => {
+    expect(formatJalali(null)).toBe("—");
+    expect(formatJalali(undefined)).toBe("—");
   });
 });
 

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CoreAnalysisPage } from "@/features/core/pages/core-analysis-page";
@@ -25,7 +26,11 @@ function fileAnalysis(index: number): FileAnalysis {
 function renderPage(fetchMock: ReturnType<typeof vi.fn>) {
   vi.stubGlobal("fetch", fetchMock);
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}><CoreAnalysisPage /></QueryClientProvider>);
+  return render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}><CoreAnalysisPage /></QueryClientProvider>
+    </MemoryRouter>,
+  );
 }
 
 describe("CoreAnalysisPage", () => {
@@ -77,5 +82,27 @@ describe("CoreAnalysisPage", () => {
 
     expect(screen.getByText("از تاریخ")).toBeInTheDocument();
     expect(screen.getByText("تا تاریخ")).toBeInTheDocument();
+  });
+
+  it("opens a detail dialog with the file's real metrics", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/static-analysis")) {
+        return new Response(JSON.stringify({
+          files: [fileAnalysis(1)],
+          modules: [],
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ status: "ok", version: "0.1.0-core" }), { status: 200 });
+    });
+    renderPage(fetchMock);
+
+    fireEvent.change(screen.getByLabelText("مسیر مطلق ریشهٔ پروژه"), { target: { value: "/workspace/project" } });
+    fireEvent.click(screen.getByRole("button", { name: "تحلیل ایستا" }));
+    expect(await screen.findByText("src/file-01.go")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "جزئیات" }));
+
+    expect(await screen.findByText("بیشترین طول تابع")).toBeInTheDocument();
+    expect(screen.getByText("مجموع طول توابع")).toBeInTheDocument();
   });
 });

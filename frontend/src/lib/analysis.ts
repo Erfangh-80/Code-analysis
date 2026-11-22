@@ -1,3 +1,4 @@
+import type { BadgeVariant } from "@/components/ui/badge";
 import type { FileAnalysisStatus, RiskLevel, RiskMetric, SupportedLanguage } from "@/types/api";
 
 export const riskLevelLabels: Record<RiskLevel, string> = {
@@ -17,8 +18,32 @@ export const metricLabels: Record<RiskMetric, string> = {
   lines_of_code: "خطوط کد",
   max_function_length: "بیشترین طول تابع",
   max_class_length: "بیشترین طول کلاس",
-  git_churn: "Git Churn",
-  change_frequency: "تعداد تغییرات",
+  git_churn: "حجم تغییرات (Churn)",
+  change_frequency: "دفعات تغییر",
+};
+
+/** Badge colors keep status/language/risk readable without relying on color alone. */
+export const languageBadgeVariants: Record<SupportedLanguage, BadgeVariant> = {
+  go: "info",
+  javascript: "warning",
+  python: "success",
+  unknown: "muted",
+};
+
+export const statusBadgeVariants: Record<FileAnalysisStatus, BadgeVariant> = {
+  analyzed: "success",
+  empty: "muted",
+  no_executable_code: "muted",
+  fallback: "warning",
+  parse_error: "destructive",
+  unsupported: "warning",
+  read_error: "destructive",
+};
+
+export const riskLevelBadgeVariants: Record<RiskLevel, BadgeVariant> = {
+  low: "success",
+  medium: "warning",
+  high: "destructive",
 };
 
 export const fileStatusLabels: Record<FileAnalysisStatus, string> = {

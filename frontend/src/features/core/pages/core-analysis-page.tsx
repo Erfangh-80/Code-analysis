@@ -1,15 +1,18 @@
 import { useMutation } from "@tanstack/react-query";
-import { CalendarClock, FileCode2, GitBranch, LoaderCircle, Play, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
+import { BookOpen, CalendarClock, FileCode2, GitBranch, Info, LoaderCircle, Play, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import type { DateObject } from "react-multi-date-picker";
+import { Link } from "react-router-dom";
 
 import { ApiErrorState, EmptyState } from "@/components/molecules/async-state";
 import { JalaliDateTimeInput } from "@/components/molecules/jalali-date-time-input";
 import { PaginationControls, usePagination } from "@/components/molecules/pagination";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fileStatusLabels, formatNumber, languageLabels, metricLabels, riskLevelLabels } from "@/lib/analysis";
+import { FileDetailDialog } from "@/features/core/components/file-detail-dialog";
+import { fileStatusLabels, formatNumber, languageBadgeVariants, languageLabels, metricLabels, riskLevelBadgeVariants, riskLevelLabels, statusBadgeVariants } from "@/lib/analysis";
 import { emptyGitResultCauses, toIsoUtc, validateHistoryRange } from "@/lib/datetime";
 import { coreApi } from "@/services/api/core-api";
 import type { BatchAnalysis, GitAnalysisReport, RiskAnalysisRequest, RiskMetric, StaticAnalysisRequest } from "@/types/api";
@@ -47,6 +50,7 @@ export function CoreAnalysisPage() {
   const [historyTo, setHistoryTo] = useState<DateObject | null>(null);
   const [staticReport, setStaticReport] = useState<BatchAnalysis>();
   const [gitReport, setGitReport] = useState<GitAnalysisReport>();
+  const [detailPath, setDetailPath] = useState<string | null>(null);
 
   const staticAnalysis = useMutation({
     mutationFn: (request: StaticAnalysisRequest) => coreApi.staticAnalysis(request),
@@ -75,6 +79,10 @@ export function CoreAnalysisPage() {
   const gitPagination = usePagination(gitReport?.files ?? [], gitReport);
   const hotspotPagination = usePagination(riskAnalysis.data?.files ?? [], riskAnalysis.data);
 
+  const detailStaticFile = staticReport?.files.find((file) => file.path === detailPath);
+  const detailGitFile = gitReport?.files.find((file) => file.path === detailPath);
+  const detailHotspot = riskAnalysis.data?.files.find((file) => file.path === detailPath);
+
   function submitStatic(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     staticAnalysis.mutate({ rootPath: staticRootPath.trim() });
@@ -94,8 +102,11 @@ export function CoreAnalysisPage() {
         <p className="text-sm font-black text-primary">فازهای ۱ تا ۴ — هستهٔ تحلیل</p>
         <h2 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">از کد محلی تا Hotspot قابل‌توضیح</h2>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-          این workspace فقط قابلیت‌های تحلیل ایستا، تاریخچهٔ Git و امتیازدهی Hotspot را نمایش می‌دهد. کد پروژه اجرا یا به سرویس خارجی ارسال نمی‌شود.
+          مسیر پروژه را می‌دهید؛ فایل‌ها به‌صورت خودکار تحلیل ایستا می‌شوند، تاریخچهٔ Git خوانده می‌شود و Backend برای هر فایل امتیاز Hotspot شفاف می‌سازد. کد پروژه اجرا یا به سرویس خارجی ارسال نمی‌شود.
         </p>
+        <Button variant="outline" size="sm" className="mt-4" asChild>
+          <Link to="/guide"><BookOpen className="size-4" />راهنمای کامل و معنی معیارها</Link>
+        </Button>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
@@ -124,7 +135,7 @@ export function CoreAnalysisPage() {
           <CardHeader>
             <GitBranch className="size-5 text-primary" />
             <CardTitle className="mt-2">۲. تحلیل تاریخچهٔ Git</CardTitle>
-            <CardDescription>این مرحله فقط دادهٔ commit و diff یک worktree محلی موجود را به‌صورت read-only می‌خواند. تاریخ‌ها به تقویم شمسی انتخاب و نمایش داده می‌شوند.</CardDescription>
+            <CardDescription>این مرحله فقط دادهٔ commit و diff یک worktree محلی موجود را به‌صورت read-only می‌خواند.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={submitGit} noValidate>
@@ -136,6 +147,10 @@ export function CoreAnalysisPage() {
                 <JalaliDateTimeInput label="از تاریخ" value={historyFrom} onChange={setHistoryFrom} />
                 <JalaliDateTimeInput label="تا تاریخ" value={historyTo} onChange={setHistoryTo} />
               </div>
+              <p className="flex items-start gap-2 rounded-lg border border-info/25 bg-info/8 p-3 text-xs leading-6 text-muted-foreground">
+                <Info className="mt-0.5 size-4 shrink-0 text-info" />
+                انتخاب بازهٔ تاریخ اختیاری است. اگر می‌دانید تغییرات مدنظرتان در چه دوره‌ای اعمال شده‌اند، همان بازه را انتخاب کنید تا تحلیل متمرکزتر شود؛ در غیر این صورت هر دو فیلد را خالی بگذارید تا کل تاریخچهٔ مخزن بررسی شود.
+              </p>
               {rangeValidation.error && (
                 <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm font-bold text-destructive" role="alert">
                   {rangeValidation.error}
@@ -171,8 +186,17 @@ export function CoreAnalysisPage() {
             {staticReport.files.length === 0 ? <EmptyState title="فایل قابل‌تحلیلی پیدا نشد" description="زیر این ریشه فایل Go، JavaScript یا Python وجود ندارد؛ مسیر مطلق و محدودهٔ مجاز سرور را بررسی کنید." /> : (
               <>
                 <Table>
-                  <TableHeader><TableRow><TableHead>فایل</TableHead><TableHead>زبان</TableHead><TableHead>وضعیت</TableHead><TableHead>LOC</TableHead><TableHead>تابع / کلاس</TableHead></TableRow></TableHeader>
-                  <TableBody>{staticPagination.pageItems.map((file) => <TableRow key={file.path}><TableCell className="font-mono text-xs" dir="ltr">{file.path}</TableCell><TableCell>{languageLabels[file.language]}</TableCell><TableCell>{fileStatusLabels[file.status]}</TableCell><TableCell>{formatNumber(file.metrics.linesOfCode)}</TableCell><TableCell>{formatNumber(file.metrics.functionCount)} / {formatNumber(file.metrics.classCount)}</TableCell></TableRow>)}</TableBody>
+                  <TableHeader><TableRow><TableHead>فایل</TableHead><TableHead>زبان</TableHead><TableHead>وضعیت</TableHead><TableHead>LOC</TableHead><TableHead>تابع / کلاس</TableHead><TableHead><span className="sr-only">جزئیات</span></TableHead></TableRow></TableHeader>
+                  <TableBody>{staticPagination.pageItems.map((file) => (
+                    <TableRow key={file.path}>
+                      <TableCell className="font-mono text-xs" dir="ltr">{file.path}</TableCell>
+                      <TableCell><Badge variant={languageBadgeVariants[file.language]}>{languageLabels[file.language]}</Badge></TableCell>
+                      <TableCell><Badge variant={statusBadgeVariants[file.status]}>{fileStatusLabels[file.status]}</Badge></TableCell>
+                      <TableCell>{formatNumber(file.metrics.linesOfCode)}</TableCell>
+                      <TableCell>{formatNumber(file.metrics.functionCount)} / {formatNumber(file.metrics.classCount)}</TableCell>
+                      <TableCell><Button type="button" variant="ghost" size="sm" onClick={() => setDetailPath(file.path)}>جزئیات</Button></TableCell>
+                    </TableRow>
+                  ))}</TableBody>
                 </Table>
                 <PaginationControls label="صفحه‌بندی نتایج تحلیل ایستا" page={staticPagination.page} pageCount={staticPagination.pageCount} rangeStart={staticPagination.rangeStart} rangeEnd={staticPagination.rangeEnd} total={staticReport.files.length} onPageChange={staticPagination.setPage} />
               </>
@@ -207,9 +231,21 @@ export function CoreAnalysisPage() {
             {gitReport.files.length > 0 && (
               <>
                 <Table>
-                  <TableHeader><TableRow><TableHead>فایل</TableHead><TableHead>Churn</TableHead><TableHead>تغییر</TableHead><TableHead>نویسندگان</TableHead><TableHead>مسیر پیشین</TableHead></TableRow></TableHeader>
-                  <TableBody>{gitPagination.pageItems.map((file) => <TableRow key={file.path}><TableCell className="font-mono text-xs" dir="ltr">{file.path}</TableCell><TableCell>{formatNumber(file.gitChurn)}</TableCell><TableCell>{formatNumber(file.changeFrequency)}</TableCell><TableCell>{formatNumber(file.authorCount)}</TableCell><TableCell className="font-mono text-xs" dir="ltr">{file.previousPaths.join(", ") || "—"}</TableCell></TableRow>)}</TableBody>
+                  <TableHeader><TableRow><TableHead>فایل</TableHead><TableHead>حجم تغییرات</TableHead><TableHead>دفعات تغییر</TableHead><TableHead>نویسندگان</TableHead><TableHead><span className="sr-only">جزئیات</span></TableHead></TableRow></TableHeader>
+                  <TableBody>{gitPagination.pageItems.map((file) => (
+                    <TableRow key={file.path}>
+                      <TableCell className="font-mono text-xs" dir="ltr">{file.path}</TableCell>
+                      <TableCell>{formatNumber(file.gitChurn)}</TableCell>
+                      <TableCell>{formatNumber(file.changeFrequency)}</TableCell>
+                      <TableCell>{formatNumber(file.authorCount)}</TableCell>
+                      <TableCell><Button type="button" variant="ghost" size="sm" onClick={() => setDetailPath(file.path)}>جزئیات</Button></TableCell>
+                    </TableRow>
+                  ))}</TableBody>
                 </Table>
+                <p className="flex items-start gap-2 text-xs leading-6 text-muted-foreground">
+                  <Info className="mt-0.5 size-3.5 shrink-0 text-info" />
+                  حجم تغییرات (Churn) مجموع خطوط افزوده/حذف‌شدهٔ فایل در بازهٔ انتخاب‌شده است و دفعات تغییر یعنی چند commit متفاوت روی آن کار کرده‌اند؛ مقادیر بزرگ‌تر یعنی فایل داغ‌تر و حساس‌تر است. تاریخ اولین/آخرین تغییر و مسیرهای پیشین را در «جزئیات» ببینید.
+                </p>
                 <PaginationControls label="صفحه‌بندی نتایج تاریخچهٔ Git" page={gitPagination.page} pageCount={gitPagination.pageCount} rangeStart={gitPagination.rangeStart} rangeEnd={gitPagination.rangeEnd} total={gitReport.files.length} onPageChange={gitPagination.setPage} />
               </>
             )}
@@ -247,10 +283,19 @@ export function CoreAnalysisPage() {
           </CardHeader>
           <CardContent className="space-y-5">
             <Table>
-              <TableHeader><TableRow><TableHead>رتبه</TableHead><TableHead>فایل</TableHead><TableHead>امتیاز</TableHead><TableHead>سطح</TableHead><TableHead>مؤثرترین معیار</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>رتبه</TableHead><TableHead>فایل</TableHead><TableHead>امتیاز</TableHead><TableHead>سطح ریسک</TableHead><TableHead>مؤثرترین معیار</TableHead><TableHead><span className="sr-only">جزئیات</span></TableHead></TableRow></TableHeader>
               <TableBody>{hotspotPagination.pageItems.map((hotspot) => {
                 const leading = hotspot.contributions.slice().sort((left, right) => right.weighted - left.weighted)[0];
-                return <TableRow key={hotspot.path}><TableCell>{formatNumber(hotspot.rank)}</TableCell><TableCell className="font-mono text-xs" dir="ltr">{hotspot.path}</TableCell><TableCell className="font-black">{formatNumber(hotspot.score)}</TableCell><TableCell>{riskLevelLabels[hotspot.level]}</TableCell><TableCell>{leading ? metricLabels[leading.metric] : "—"}</TableCell></TableRow>;
+                return (
+                  <TableRow key={hotspot.path}>
+                    <TableCell>{formatNumber(hotspot.rank)}</TableCell>
+                    <TableCell className="font-mono text-xs" dir="ltr">{hotspot.path}</TableCell>
+                    <TableCell className="font-black">{formatNumber(hotspot.score)}</TableCell>
+                    <TableCell><Badge variant={riskLevelBadgeVariants[hotspot.level]}>{riskLevelLabels[hotspot.level]}</Badge></TableCell>
+                    <TableCell>{leading ? metricLabels[leading.metric] : "—"}</TableCell>
+                    <TableCell><Button type="button" variant="ghost" size="sm" onClick={() => setDetailPath(hotspot.path)}>جزئیات</Button></TableCell>
+                  </TableRow>
+                );
               })}</TableBody>
             </Table>
             <PaginationControls label="صفحه‌بندی Hotspotها" page={hotspotPagination.page} pageCount={hotspotPagination.pageCount} rangeStart={hotspotPagination.rangeStart} rangeEnd={hotspotPagination.rangeEnd} total={riskAnalysis.data.files.length} onPageChange={hotspotPagination.setPage} />
@@ -258,6 +303,8 @@ export function CoreAnalysisPage() {
           </CardContent>
         </Card>
       )}
+
+      <FileDetailDialog path={detailPath} staticFile={detailStaticFile} gitFile={detailGitFile} hotspot={detailHotspot} onClose={() => setDetailPath(null)} />
     </div>
   );
 }

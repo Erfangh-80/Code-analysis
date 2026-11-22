@@ -1,4 +1,20 @@
+import DateObjectImport from "react-date-object";
 import type { DateObject } from "react-multi-date-picker";
+import persianCalendarImport from "react-date-object/calendars/persian";
+import persianFaLocaleImport from "react-date-object/locales/persian_fa";
+
+import { unwrapCjs } from "@/lib/unwrap-cjs";
+
+const DateObjectCtor = unwrapCjs(DateObjectImport);
+const persian = unwrapCjs(persianCalendarImport);
+const persian_fa = unwrapCjs(persianFaLocaleImport);
+
+/** Renders an ISO/Gregorian instant back in the Jalali calendar for display. */
+export function formatJalali(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new DateObjectCtor({ date: value, calendar: persian, locale: persian_fa });
+  return date.isValid ? date.format("YYYY/MM/DD HH:mm") : "—";
+}
 
 /**
  * Converts a Jalali-picker value to the Gregorian RFC 3339 instant the API

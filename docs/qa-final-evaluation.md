@@ -29,7 +29,7 @@ The repository's `Backend tests` GitHub Actions workflow runs `go test ./...` fo
 On this phase-only working tree, the following commands passed:
 
 - `npm run typecheck`
-- `npm test -- --run` — 5 files, 18 tests passed
+- `npm test -- --run` — 7 files, 26 tests passed
 - `npm run build`
 
 The tests cover relative health transport, direct static/Git/risk transport, static result rendering, nullable collection normalization, local-service failures, request timeout, and no browser-side score calculation.

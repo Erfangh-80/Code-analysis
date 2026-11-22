@@ -1,4 +1,4 @@
-import { ScanSearch, X } from "lucide-react";
+import { BookOpen, ScanSearch, X } from "lucide-react";
 
 import { BrandMark } from "@/components/atoms/brand-mark";
 import { NavigationItem } from "@/components/molecules/navigation-item";
@@ -7,6 +7,7 @@ import { useUIStore } from "@/store/ui-store";
 
 const navigation = [
   { to: "/", icon: ScanSearch, label: "هستهٔ تحلیل", end: true },
+  { to: "/guide", icon: BookOpen, label: "راهنما" },
 ];
 
 export function AppSidebar() {

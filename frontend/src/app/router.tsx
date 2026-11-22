@@ -5,6 +5,7 @@ import { RouteErrorPage } from "@/app/route-error-page";
 import { DashboardLayout } from "@/components/templates/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { CoreAnalysisPage } from "@/features/core/pages/core-analysis-page";
+import { GuidePage } from "@/features/core/pages/guide-page";
 
 function NotFoundPage() {
   return (
@@ -28,6 +29,14 @@ export const router = createBrowserRouter([
         handle: {
           title: "هستهٔ تحلیل ریسک کد",
           description: "تحلیل ایستا، تاریخچهٔ Git و رتبه‌بندی Hotspot روی دستگاه محلی.",
+        },
+      },
+      {
+        path: "guide",
+        element: <GuidePage />,
+        handle: {
+          title: "راهنمای استفاده",
+          description: "توضیح امکانات، معیارها و معنی سطوح ریسک.",
         },
       },
       {
