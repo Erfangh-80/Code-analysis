@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/Erfangh-80/code-analysis/backend/internal/analysisguard"
 	"github.com/Erfangh-80/code-analysis/backend/internal/analyzer/static"
 	"github.com/Erfangh-80/code-analysis/backend/internal/domain"
 )
@@ -34,13 +36,30 @@ type StaticAnalysisRequest struct {
 
 // StaticAnalysisService reads requested local source files and delegates only static parsing.
 type StaticAnalysisService struct {
-	analyzer *static.Analyzer
-	failures FailureRecorder
+	analyzer   *static.Analyzer
+	failures   FailureRecorder
+	pathPolicy *analysisguard.PathPolicy
+	limits     analysisguard.Limits
 }
 
-// NewStaticAnalysisService creates the use case from an analyzer and local failure recorder.
+// NewStaticAnalysisService creates a backwards-compatible service for in-process
+// callers. The production server must use NewStaticAnalysisServiceWithGuards.
 func NewStaticAnalysisService(analyzer *static.Analyzer, failures FailureRecorder) *StaticAnalysisService {
-	return &StaticAnalysisService{analyzer: analyzer, failures: failures}
+	limits, _ := analysisguard.DefaultLimits().Normalize()
+	return &StaticAnalysisService{analyzer: analyzer, failures: failures, limits: limits}
+}
+
+// NewStaticAnalysisServiceWithGuards creates a bounded service that restricts
+// root paths to a server-configured policy. It never stores source content.
+func NewStaticAnalysisServiceWithGuards(analyzer *static.Analyzer, failures FailureRecorder, policy *analysisguard.PathPolicy, limits analysisguard.Limits) (*StaticAnalysisService, error) {
+	if policy == nil {
+		return nil, fmt.Errorf("%w: a path policy is required", analysisguard.ErrInvalidAllowedRoot)
+	}
+	normalized, err := limits.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	return &StaticAnalysisService{analyzer: analyzer, failures: failures, pathPolicy: policy, limits: normalized}, nil
 }
 
 // Analyze reads files under RootPath, calculates real static results, and aggregates directories.
@@ -57,15 +76,19 @@ func (service *StaticAnalysisService) AnalyzeWithProgress(ctx context.Context, r
 }
 
 func (service *StaticAnalysisService) analyze(ctx context.Context, request StaticAnalysisRequest, onFile func(completed, total int, analysis domain.FileAnalysis)) (domain.BatchAnalysis, error) {
-	root, err := validateRoot(request.RootPath)
+	root, err := service.validateRoot(request.RootPath)
 	if err != nil {
 		return domain.BatchAnalysis{}, err
 	}
 	if len(request.Files) == 0 {
 		return domain.BatchAnalysis{}, fmt.Errorf("%w: at least one file is required", ErrInvalidAnalysisRequest)
 	}
+	if len(request.Files) > service.limits.MaxFiles {
+		return domain.BatchAnalysis{}, fmt.Errorf("%w: requested file count exceeds the configured limit", analysisguard.ErrResourceLimit)
+	}
 
 	result := domain.BatchAnalysis{Files: make([]domain.FileAnalysis, 0, len(request.Files))}
+	var sourceBytes int64
 	for _, requestedPath := range request.Files {
 		if err := ctx.Err(); err != nil {
 			return domain.BatchAnalysis{}, err
@@ -75,29 +98,10 @@ func (service *StaticAnalysisService) analyze(ctx context.Context, request Stati
 		if err != nil {
 			return domain.BatchAnalysis{}, err
 		}
-		content, err := os.ReadFile(absolutePath)
-		if err != nil {
-			analysis := domain.FileAnalysis{
-				Path:     filepath.ToSlash(relativePath),
-				Language: languageFromExtension(relativePath),
-				Status:   domain.AnalysisStatusReadError,
-				Diagnostics: []domain.Diagnostic{{
-					Code:     domain.DiagnosticCodeReadError,
-					Message:  "The requested local source file could not be read.",
-					Severity: "error",
-				}},
-			}
-			result.Files = append(result.Files, analysis)
-			service.recordFailure(analysis)
-			if onFile != nil {
-				onFile(len(result.Files), len(request.Files), analysis)
-			}
-			continue
-		}
-
-		analysis := service.analyzer.Analyze(domain.SourceFile{Path: filepath.ToSlash(relativePath), Content: content})
+		analysis, consumed := service.analyzeFile(relativePath, absolutePath, sourceBytes)
+		sourceBytes += consumed
 		result.Files = append(result.Files, analysis)
-		if analysis.HasParserFailure() {
+		if analysis.HasParserFailure() || analysis.Status == domain.AnalysisStatusReadError {
 			service.recordFailure(analysis)
 		}
 		if onFile != nil {
@@ -110,6 +114,61 @@ func (service *StaticAnalysisService) analyze(ctx context.Context, request Stati
 	})
 	result.Modules = AggregateModules(result.Files)
 	return result, nil
+}
+
+func (service *StaticAnalysisService) analyzeFile(relativePath, absolutePath string, usedBytes int64) (domain.FileAnalysis, int64) {
+	filePath := filepath.ToSlash(relativePath)
+	language := languageFromExtension(relativePath)
+	info, err := os.Stat(absolutePath)
+	if err != nil || !info.Mode().IsRegular() {
+		return unreadableAnalysis(filePath, language, domain.DiagnosticCodeReadError, "The requested local source file could not be read."), 0
+	}
+	if info.Size() > service.limits.MaxFileBytes {
+		return unreadableAnalysis(filePath, language, domain.DiagnosticCodeResourceLimit, "The source file exceeds the configured analysis size limit."), 0
+	}
+	if usedBytes+info.Size() > service.limits.MaxTotalSourceBytes {
+		return unreadableAnalysis(filePath, language, domain.DiagnosticCodeResourceLimit, "The analysis source-byte budget was reached before this file could be read."), 0
+	}
+	content, err := readBoundedSourceFile(absolutePath, service.limits.MaxFileBytes)
+	if err != nil {
+		if errors.Is(err, analysisguard.ErrResourceLimit) {
+			return unreadableAnalysis(filePath, language, domain.DiagnosticCodeResourceLimit, "The source file exceeds the configured analysis size limit."), 0
+		}
+		return unreadableAnalysis(filePath, language, domain.DiagnosticCodeReadError, "The requested local source file could not be read."), 0
+	}
+	if usedBytes+int64(len(content)) > service.limits.MaxTotalSourceBytes {
+		return unreadableAnalysis(filePath, language, domain.DiagnosticCodeResourceLimit, "The analysis source-byte budget was reached before this file could be analyzed."), 0
+	}
+	return service.analyzer.Analyze(domain.SourceFile{Path: filePath, Content: content}), int64(len(content))
+}
+
+func readBoundedSourceFile(path string, maxBytes int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(content)) > maxBytes {
+		return nil, fmt.Errorf("%w: source file is too large", analysisguard.ErrResourceLimit)
+	}
+	return content, nil
+}
+
+func unreadableAnalysis(path string, language domain.Language, code domain.DiagnosticCode, message string) domain.FileAnalysis {
+	return domain.FileAnalysis{
+		Path:     path,
+		Language: language,
+		Status:   domain.AnalysisStatusReadError,
+		Diagnostics: []domain.Diagnostic{{
+			Code:     code,
+			Message:  message,
+			Severity: "error",
+		}},
+	}
 }
 
 // FailedFiles returns failures observed by this local process without source contents.
@@ -176,17 +235,10 @@ func addMetrics(target *domain.Metrics, source domain.Metrics) {
 	}
 }
 
-func validateRoot(path string) (string, error) {
-	if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
-		return "", fmt.Errorf("%w: rootPath must be an absolute local directory", ErrInvalidAnalysisRequest)
-	}
-	resolvedPath, err := filepath.EvalSymlinks(path)
+func (service *StaticAnalysisService) validateRoot(path string) (string, error) {
+	resolvedPath, err := service.pathPolicy.ResolveDirectory(path)
 	if err != nil {
-		return "", fmt.Errorf("%w: rootPath is not accessible", ErrInvalidAnalysisRequest)
-	}
-	info, err := os.Stat(resolvedPath)
-	if err != nil || !info.IsDir() {
-		return "", fmt.Errorf("%w: rootPath is not a directory", ErrInvalidAnalysisRequest)
+		return "", fmt.Errorf("%w: rootPath is invalid, inaccessible, or outside the allowed analysis roots", ErrInvalidAnalysisRequest)
 	}
 	return resolvedPath, nil
 }
@@ -201,13 +253,14 @@ func pathWithinRoot(root, requestedPath string) (string, string, error) {
 	}
 	absolutePath := filepath.Join(root, relativePath)
 	resolvedPath, err := filepath.EvalSymlinks(absolutePath)
-	if err == nil {
-		relativeResolved, relativeErr := filepath.Rel(root, resolvedPath)
-		if relativeErr != nil || relativeResolved == ".." || strings.HasPrefix(relativeResolved, ".."+string(filepath.Separator)) {
-			return "", "", fmt.Errorf("%w: file path escapes rootPath through a symlink", ErrInvalidAnalysisRequest)
-		}
+	if err != nil {
+		return relativePath, absolutePath, nil
 	}
-	return relativePath, absolutePath, nil
+	relativeResolved, relativeErr := filepath.Rel(root, resolvedPath)
+	if relativeErr != nil || relativeResolved == ".." || strings.HasPrefix(relativeResolved, ".."+string(filepath.Separator)) || filepath.IsAbs(relativeResolved) {
+		return "", "", fmt.Errorf("%w: file path escapes rootPath through a symlink", ErrInvalidAnalysisRequest)
+	}
+	return relativePath, resolvedPath, nil
 }
 
 func languageFromExtension(path string) domain.Language {

@@ -73,6 +73,7 @@ export interface StageSnapshot {
   status: StageStatus;
   startedAt?: string | null;
   completedAt?: string | null;
+  durationMillis?: number;
   progress: StageProgress;
 }
 

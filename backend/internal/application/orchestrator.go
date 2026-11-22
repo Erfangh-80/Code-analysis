@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Erfangh-80/code-analysis/backend/internal/analysisguard"
 	"github.com/Erfangh-80/code-analysis/backend/internal/domain"
 	"github.com/Erfangh-80/code-analysis/backend/internal/githistory"
 	"github.com/Erfangh-80/code-analysis/backend/internal/scoring"
@@ -41,26 +42,40 @@ type Orchestrator struct {
 	git     GitHistoryAnalyzer
 	risk    RiskAnalyzer
 
-	runSlots chan struct{}
+	runSlots       chan struct{}
+	analysisTimeout time.Duration
 
 	mu      sync.Mutex
 	cancels map[domain.AnalysisID]context.CancelFunc
 }
 
-// NewOrchestrator creates a bounded local analysis coordinator.
+// NewOrchestrator creates a backwards-compatible bounded local analysis coordinator.
+// The production server must use NewOrchestratorWithLimits.
 func NewOrchestrator(store RunStore, scanner ProjectScanner, static *StaticAnalysisService, git GitHistoryAnalyzer, risk RiskAnalyzer, maxConcurrentRuns int) *Orchestrator {
+	orchestrator, _ := NewOrchestratorWithLimits(store, scanner, static, git, risk, maxConcurrentRuns, analysisguard.DefaultLimits())
+	return orchestrator
+}
+
+// NewOrchestratorWithLimits creates a coordinator with an end-to-end deadline
+// for each run. The deadline includes queueing so stale work cannot accumulate.
+func NewOrchestratorWithLimits(store RunStore, scanner ProjectScanner, static *StaticAnalysisService, git GitHistoryAnalyzer, risk RiskAnalyzer, maxConcurrentRuns int, limits analysisguard.Limits) (*Orchestrator, error) {
+	normalized, err := limits.Normalize()
+	if err != nil {
+		return nil, err
+	}
 	if maxConcurrentRuns < 1 {
 		maxConcurrentRuns = 1
 	}
 	return &Orchestrator{
-		store:    store,
-		scanner:  scanner,
-		static:   static,
-		git:      git,
-		risk:     risk,
-		runSlots: make(chan struct{}, maxConcurrentRuns),
-		cancels:  make(map[domain.AnalysisID]context.CancelFunc),
-	}
+		store:           store,
+		scanner:         scanner,
+		static:          static,
+		git:             git,
+		risk:            risk,
+		runSlots:        make(chan struct{}, maxConcurrentRuns),
+		analysisTimeout: normalized.AnalysisTimeout,
+		cancels:         make(map[domain.AnalysisID]context.CancelFunc),
+	}, nil
 }
 
 // Start validates the local project scope, persists a queued run, and starts
@@ -97,7 +112,7 @@ func (orchestrator *Orchestrator) Start(ctx context.Context, request domain.Anal
 		return domain.AnalysisRun{}, err
 	}
 
-	runContext, cancel := context.WithCancel(context.Background())
+	runContext, cancel := context.WithTimeout(context.Background(), orchestrator.analysisTimeout)
 	orchestrator.mu.Lock()
 	orchestrator.cancels[run.ID] = cancel
 	orchestrator.mu.Unlock()
@@ -152,7 +167,7 @@ func (orchestrator *Orchestrator) execute(ctx context.Context, run domain.Analys
 	case orchestrator.runSlots <- struct{}{}:
 		defer func() { <-orchestrator.runSlots }()
 	case <-ctx.Done():
-		orchestrator.cancelRun(&run)
+		orchestrator.finishContext(&run, ctx)
 		return
 	}
 
@@ -173,8 +188,8 @@ func (orchestrator *Orchestrator) execute(ctx context.Context, run domain.Analys
 
 	scan, err := orchestrator.scanner.Scan(ctx, run.Scope)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			orchestrator.cancelRun(&run)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			orchestrator.finishContext(&run, ctx)
 			return
 		}
 		orchestrator.failRun(&run, domain.AnalysisStageDiscovery, "DISCOVERY_FAILED", "The local project files could not be discovered.")
@@ -240,15 +255,19 @@ func (orchestrator *Orchestrator) execute(ctx context.Context, run domain.Analys
 			completed++
 			gitResults = nil
 		case <-ctx.Done():
-			orchestrator.cancelRun(&run)
+			orchestrator.finishContext(&run, ctx)
 			return
 		}
 	}
 	if ctx.Err() != nil {
-		orchestrator.cancelRun(&run)
+		orchestrator.finishContext(&run, ctx)
 		return
 	}
 	if staticOutcome.err != nil {
+		if errors.Is(staticOutcome.err, context.Canceled) || errors.Is(staticOutcome.err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			orchestrator.finishContext(&run, ctx)
+			return
+		}
 		orchestrator.failRun(&run, domain.AnalysisStageStatic, "STATIC_ANALYSIS_FAILED", "Static analysis could not complete for the selected project.")
 		return
 	}
@@ -271,7 +290,11 @@ func (orchestrator *Orchestrator) execute(ctx context.Context, run domain.Analys
 		setStage(&run, domain.AnalysisStageGit, domain.StageStatusCompleted, domain.StageProgress{Total: gitOutcome.report.CommitCount, Completed: gitOutcome.report.CommitCount})
 	} else if scan.Scope.GitAvailable {
 		setStage(&run, domain.AnalysisStageGit, domain.StageStatusUnavailable, domain.StageProgress{})
-		appendDiagnostic(&run, domain.AnalysisStageGit, "", "GIT_UNAVAILABLE", "warning", "Git history is unavailable for the selected project; static metrics remain available for risk scoring.")
+		if errors.Is(gitOutcome.err, githistory.ErrResourceLimit) {
+			appendDiagnostic(&run, domain.AnalysisStageGit, "", "GIT_RESOURCE_LIMIT", "warning", "Git history exceeded a configured resource limit; static metrics remain available for risk scoring.")
+		} else {
+			appendDiagnostic(&run, domain.AnalysisStageGit, "", "GIT_UNAVAILABLE", "warning", "Git history is unavailable for the selected project; static metrics remain available for risk scoring.")
+		}
 	}
 
 	setCurrentStage(&run, domain.AnalysisCurrentStageScoring)
@@ -317,7 +340,7 @@ func (orchestrator *Orchestrator) execute(ctx context.Context, run domain.Analys
 
 	setCurrentStage(&run, domain.AnalysisCurrentStageFinalizing)
 	if ctx.Err() != nil {
-		orchestrator.cancelRun(&run)
+		orchestrator.finishContext(&run, ctx)
 		return
 	}
 	scoredFiles := 0
@@ -345,11 +368,9 @@ func (orchestrator *Orchestrator) execute(ctx context.Context, run domain.Analys
 
 func (orchestrator *Orchestrator) recordStaticProgress(run *domain.AnalysisRun, completed, total int, file domain.FileAnalysis) {
 	run.Progress.FilesAnalyzed = completed
-	status := domain.StageStatusRunning
-	if completed == total {
-		status = domain.StageStatusCompleted
-	}
-	setStage(run, domain.AnalysisStageStatic, status, domain.StageProgress{Total: total, Completed: completed})
+	// The stage stays running until AnalyzeWithProgress returns, so its
+	// duration includes aggregation and final source-budget accounting.
+	setStage(run, domain.AnalysisStageStatic, domain.StageStatusRunning, domain.StageProgress{Total: total, Completed: completed})
 	if file.Status == domain.AnalysisStatusReadError || file.HasParserFailure() || file.Status == domain.AnalysisStatusUnsupported {
 		run.Progress.FilesWithErrors++
 		if len(file.Diagnostics) == 0 {
@@ -387,11 +408,9 @@ func (orchestrator *Orchestrator) cancelRun(run *domain.AnalysisRun) {
 	for index := range run.Stages {
 		switch run.Stages[index].Status {
 		case domain.StageStatusRunning:
-			run.Stages[index].Status = domain.StageStatusCancelled
-			run.Stages[index].CompletedAt = &now
+			completeStage(&run.Stages[index], domain.StageStatusCancelled, now)
 		case domain.StageStatusPending:
-			run.Stages[index].Status = domain.StageStatusSkipped
-			run.Stages[index].CompletedAt = &now
+			completeStage(&run.Stages[index], domain.StageStatusSkipped, now)
 		}
 	}
 	appendDiagnostic(run, domain.AnalysisStageValidation, "", "ANALYSIS_CANCELLED", "warning", "The local analysis was cancelled before completion.")
@@ -402,12 +421,28 @@ func (orchestrator *Orchestrator) cancelRun(run *domain.AnalysisRun) {
 	_ = orchestrator.store.SaveRun(context.Background(), *run)
 }
 
+func (orchestrator *Orchestrator) finishContext(run *domain.AnalysisRun, ctx context.Context) {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		orchestrator.failRun(run, activeStage(*run), "ANALYSIS_TIMEOUT", "The analysis exceeded the configured time limit and was stopped safely.")
+		return
+	}
+	orchestrator.cancelRun(run)
+}
+
+func activeStage(run domain.AnalysisRun) domain.AnalysisStage {
+	for _, snapshot := range run.Stages {
+		if snapshot.Status == domain.StageStatusRunning {
+			return snapshot.Stage
+		}
+	}
+	return domain.AnalysisStageValidation
+}
+
 func skipNonTerminalStages(run *domain.AnalysisRun) {
 	now := time.Now().UTC()
 	for index := range run.Stages {
 		if run.Stages[index].Status == domain.StageStatusRunning || run.Stages[index].Status == domain.StageStatusPending {
-			run.Stages[index].Status = domain.StageStatusSkipped
-			run.Stages[index].CompletedAt = &now
+			completeStage(&run.Stages[index], domain.StageStatusSkipped, now)
 		}
 	}
 }
@@ -442,11 +477,23 @@ func setStage(run *domain.AnalysisRun, stage domain.AnalysisStage, status domain
 			run.Stages[index].StartedAt = &now
 		}
 		if isTerminalStage(status) {
-			run.Stages[index].CompletedAt = &now
+			completeStage(&run.Stages[index], status, now)
+		} else {
+			run.Stages[index].Status = status
 		}
-		run.Stages[index].Status = status
 		run.Stages[index].Progress = progress
 		return
+	}
+}
+
+func completeStage(snapshot *domain.StageSnapshot, status domain.StageStatus, completedAt time.Time) {
+	snapshot.Status = status
+	snapshot.CompletedAt = &completedAt
+	if snapshot.StartedAt != nil {
+		duration := completedAt.Sub(*snapshot.StartedAt).Milliseconds()
+		if duration > 0 {
+			snapshot.DurationMillis = duration
+		}
 	}
 }
 

@@ -51,6 +51,15 @@ func Open(path string) (*Store, error) {
 		_ = database.Close()
 		return nil, err
 	}
+	if path != ":memory:" {
+		// Analysis records include local project metadata; keep the database
+		// private even when the host umask is permissive. The analyzer creates
+		// no project-side temporary files or clones.
+		if err := os.Chmod(path, 0o600); err != nil {
+			_ = database.Close()
+			return nil, fmt.Errorf("secure SQLite database permissions: %w", err)
+		}
+	}
 	if _, err := database.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		_ = database.Close()
 		return nil, fmt.Errorf("enable SQLite WAL mode: %w", err)

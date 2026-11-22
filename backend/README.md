@@ -14,7 +14,17 @@ cd backend
 go run ./cmd/server
 ```
 
-The server binds to `127.0.0.1:8080` by default.
+The server binds to `127.0.0.1:8080` by default. Production startup confines analysis to the current user's home directory unless one or more explicit `--allowed-root` values are supplied. Use the narrowest parent directory that contains the projects you intend to analyze:
+
+```bash
+go run ./cmd/server \
+  --allowed-root "$HOME/workspaces" \
+  --max-files 10000 \
+  --max-file-bytes $((2 * 1024 * 1024)) \
+  --max-total-source-bytes $((128 * 1024 * 1024)) \
+  --max-git-commits 20000 \
+  --analysis-timeout 10m
+```
 
 ```bash
 curl http://127.0.0.1:8080/api/v1/health
@@ -148,6 +158,14 @@ GET /api/v1/analyses/{analysisId}/export?format=json|csv
 File and hotspot lists support bounded pagination, project-relative path/module filters, and deterministic sorting. Results and exports never expose absolute local paths. CSV output prefixes formula-leading path values before writing them to protect spreadsheet users. The full route/query/error contract is in [`../docs/api-contract.md`](../docs/api-contract.md).
 
 During the current development phase, the API permits browser requests from every origin. This keeps a separately hosted local UI working without extra startup flags. The permissive CORS policy does not allow cross-origin credentials, but it must be replaced with a strict same-origin or explicit trusted-origin policy before a public release.
+
+## Security, resource limits, and performance
+
+The production composition root canonicalizes every requested project root and permits it only below configured `--allowed-root` directories. Relative traversal, absolute file paths supplied where relative paths are required, and symlinks escaping a selected project are rejected. Git history becomes unavailable rather than reading an enclosing worktree outside the configured roots.
+
+Static source reads, discovery file count, Git commit count, Git command output, concurrent runs, and wall-clock time are bounded. File-specific resource limits retain other valid outputs; a constrained Git stage preserves valid static-only scoring; a whole-run timeout produces a controlled failure. Parser, read, path, and resource diagnostics are intentionally generic and never include source content, parser text, absolute project paths, or Git command output. The local SQLite report database is created owner-only (`0600`), and analysis creates no target-project temporary files, clones, or worktrees.
+
+Each static and Git stage persists start/end timestamps and a measured `durationMillis` when terminal. See [`../docs/backend-performance.md`](../docs/backend-performance.md) for defaults, benchmark procedure, memory/resource limitations, and the intentional cache decision.
 
 ## Swagger / OpenAPI
 
