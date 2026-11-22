@@ -30,12 +30,15 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
   /static-analysis:
     post:
-      summary: Analyze explicitly selected local source files
+      summary: Analyze local source files below one root directory
       operationId: analyzeStaticFiles
       description: |
-        Reads only relative file paths below an absolute rootPath. Supported
-        languages are Go, JavaScript, and Python. The target project is never
-        built, imported, tested, or executed.
+        Reads source files below an absolute rootPath. When files is omitted or
+        empty, the server performs a bounded discovery of supported Go,
+        JavaScript, and Python sources below rootPath, skipping VCS metadata,
+        dependency vendors, and build output directories; explicit relative
+        paths restrict analysis to exactly those files. The target project is
+        never built, imported, tested, or executed.
       requestBody:
         required: true
         content:
@@ -191,15 +194,17 @@ components:
     StaticAnalysisRequest:
       type: object
       additionalProperties: false
-      required: [rootPath, files]
+      required: [rootPath]
       properties:
         rootPath:
           type: string
           description: Absolute local directory allowed by the server policy.
         files:
           type: array
-          minItems: 1
-          description: Non-empty project-relative paths below rootPath.
+          description: |
+            Optional non-empty project-relative paths below rootPath. Omit or
+            pass an empty list to let the server discover supported source
+            files below rootPath within its configured file-count limit.
           items:
             type: string
             minLength: 1

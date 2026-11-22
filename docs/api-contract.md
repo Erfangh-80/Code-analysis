@@ -32,7 +32,13 @@ Routes beginning with `/analyses` are intentionally not implemented on this bran
 
 ## `POST /static-analysis`
 
-Analyze explicit files below one local root. The server reads and parses text only. Supported extensions are Go (`.go`), JavaScript (`.js`, `.mjs`, `.cjs`), and Python (`.py`).
+Analyze files below one local root. Supported extensions are Go (`.go`), JavaScript (`.js`, `.mjs`, `.cjs`), and Python (`.py`).
+
+```json
+{ "rootPath": "/absolute/path/to/project" }
+```
+
+`rootPath` must be an accessible, allowed absolute directory. `files` is optional: with explicit entries, each must be non-empty, relative, and resolve below the root; when omitted or empty, the server runs a bounded discovery below the root that collects supported sources in sorted order, skips `.git`/VCS metadata, dependency vendors (`node_modules`, `vendor`), build output (`dist`, `build`, `out`, `target`, …) and cache directories, never follows directory symlinks, and skips file symlinks resolving outside the root.
 
 ```json
 {
@@ -45,7 +51,7 @@ Analyze explicit files below one local root. The server reads and parses text on
 }
 ```
 
-`rootPath` must be an accessible, allowed absolute directory. Every `files` entry must be non-empty, relative, and resolve below it. The selected file list is not recursive discovery.
+If discovery finds more supported files than the configured `max-files` limit, the whole request fails with `413 RESOURCE_LIMIT_EXCEEDED` rather than silently truncating the analyzed set. A root without supported sources returns `200` with empty `files` and `modules`.
 
 A successful response is a `BatchAnalysis` object:
 

@@ -84,7 +84,8 @@ export interface BatchAnalysis {
 
 export interface StaticAnalysisRequest {
   rootPath: string;
-  files: string[];
+  /** Omit to let the backend discover supported sources below rootPath. */
+  files?: string[];
 }
 
 export interface GitFileMetrics {

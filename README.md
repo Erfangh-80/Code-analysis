@@ -21,14 +21,14 @@ The React + TypeScript frontend is included for these same phases. Its one works
 
 - Local paths only, constrained by operator-configured allowed roots.
 - Static parsing only; the target project is never built, imported, tested, or executed.
-- Explicit file selection for Go, JavaScript, and Python.
+- Explicit file selection or bounded automatic discovery of Go, JavaScript, and Python sources below one root path.
 - Read-only Git history analysis for an existing worktree, with optional date bounds.
 - Deterministic Hotspot scores, ranking, module aggregates, heatmap data, metric contributions, and limitations.
 - A Persian RTL frontend for the direct three-step workflow.
 
 ### Deliberately absent on this branch
 
-- Recursive repository scanning/discovery and `.gitignore` processing.
+- `.gitignore`-aware or otherwise configurable repository scanning. Discovery uses a fixed, documented skip list (VCS metadata, dependency vendors, build output) and the configured file/byte limits.
 - Queued or asynchronous analysis lifecycle, cancellation, persistence, SQLite, or restart recovery.
 - Saved report/result query routes, dashboard pages, server-side filters, comparisons, CSV/JSON export, and settings screens.
 - Remote repositories, cloning, source upload, target-code execution, TypeScript parsing, defect prediction, coverage, security scanning, or cyclomatic complexity.
@@ -77,7 +77,7 @@ npm install
 npm run dev
 ```
 
-Open the Vite URL, enter an allowed absolute local path and relative source files, then optionally analyze its Git history and request a Hotspot score.
+Open the Vite URL, enter an allowed absolute local path, then optionally analyze its Git history (with a Jalali date range) and request a Hotspot score.
 
 ## Direct API surface
 
@@ -87,7 +87,7 @@ The complete machine-readable contract is embedded at [`backend/internal/api/ope
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | Local service status/version |
 | `GET` | `/api/v1/openapi.yaml` | Embedded OpenAPI 3.1 document |
-| `POST` | `/api/v1/static-analysis` | Analyze explicitly selected relative source files |
+| `POST` | `/api/v1/static-analysis` | Analyze explicit relative files or discover supported sources below one root |
 | `GET` | `/api/v1/static-analysis/failures` | Process-local safe parser/read failure metadata |
 | `POST` | `/api/v1/git-analysis` | Read local Git history facts |
 | `POST` | `/api/v1/risk-analysis` | Calculate backend-owned Hotspot scores |

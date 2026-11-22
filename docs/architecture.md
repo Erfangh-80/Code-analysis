@@ -15,7 +15,7 @@ The tool helps a developer prioritize code for review or refactoring. It works o
 | Local-only | HTTP accepts local paths; the backend does not accept Git URLs, uploads, or clone requests. The frontend uses relative API paths. |
 | No target-code execution | Static analysis reads/parses text only. Git commands use fixed read-only argument lists. Tests use source fixtures but never execute them. |
 | Static language support | Explicitly named `.go`, `.js`/`.mjs`/`.cjs`, and `.py` files produce language/status/metric results. |
-| Safe file boundary | A request has one absolute root plus non-empty relative file paths. Production restricts the root to configured canonical allowed roots; traversal and symlink escapes are rejected. |
+| Safe file boundary | A request has one absolute root; explicit relative file paths are optional. Without them, bounded discovery walks the root with a fixed skip list. Production restricts the root to configured canonical allowed roots; traversal and symlink escapes are rejected. |
 | Git facts | An existing worktree yields per-file churn, change frequency, authors, timestamps, rename lineage, deletion state, and change concentration/dispersion. |
 | Honest risk score | The engine is deterministic, exposes formula/profile/contributions/limitations, and excludes explicitly unavailable metrics rather than presenting them as observed facts. |
 | Human workflow | The frontend shows the direct three-step static → Git → Hotspot flow and only renders API responses; it has no saved-run, report, or export UI. |
@@ -55,14 +55,14 @@ backend/
 
 ## 3. Direct data flow
 
-1. **Static request** — the caller sends one allowed absolute `rootPath` and selected relative file names to `POST /static-analysis`.
-2. **Static analysis** — the service resolves the root, validates each relative path stays below it, reads at most configured byte limits, and parses supported source text. It returns per-file results and directory module aggregates. Parser/read errors become file diagnostics and safe process-local failure metadata.
+1. **Static request** — the caller sends one allowed absolute `rootPath` to `POST /static-analysis`, either with explicit relative file names or empty for bounded discovery.
+2. **Static analysis** — the service resolves the root, validates each relative path stays below it, and when no files are named walks the root once: it collects supported extensions in sorted order, skips VCS/vendor/build directories, never follows directory symlinks, and skips file symlinks that resolve outside the root. Exceeding the configured file-count limit fails the request with `413`; per-file read/parse/byte limits are enforced while reading. It returns per-file results and directory module aggregates. Parser/read errors become file diagnostics and safe process-local failure metadata.
 3. **Git request** — the caller sends the absolute worktree location and optional inclusive RFC 3339 history bounds to `POST /git-analysis`.
 4. **Git analysis** — the service confirms a local worktree and runs fixed `git log`, `git diff-tree --name-status`, and `git diff-tree --numstat` commands with `GIT_OPTIONAL_LOCKS=0`. It does not write to the worktree, index, refs, or remotes.
 5. **Risk request** — the caller supplies the relevant static and Git values to `POST /risk-analysis`. The scoring engine validates fields and calculates ranking/contributions/modules/heatmap data.
 6. **Frontend** — the workspace retains each response in memory for the current page. It asks the backend to calculate the score and displays returned values. Refreshing the page clears the unsaved results by design.
 
-The current direct contract is intentionally composable: consumers can call the three analytical endpoints individually. It does not perform recursive discovery or automatically persist/join an entire project run.
+The current direct contract is intentionally composable: consumers can call the three analytical endpoints individually. Discovery is a bounded, single-walk convenience with a fixed skip list; there is no `.gitignore` processing, persistent index, or project model, and results are never persisted.
 
 ## 4. Static analysis design
 
@@ -129,4 +129,4 @@ Run the full commands in [README.md](../README.md#verify). Host-scale timing/RSS
 
 ## 9. Explicitly deferred
 
-This phase-only architecture does not include recursive discovery, analysis queues, cancellation, concurrency scheduling, SQLite or another run store, restart recovery, lifecycle routes, saved reports, result query/filter APIs, export, dashboards, comparison, remote cloning, TypeScript parsing, or target-project code execution. Those later capabilities are intentionally available only in the complete-product branch.
+This phase-only architecture does not include `.gitignore`-aware scanning, analysis queues, cancellation, concurrency scheduling, SQLite or another run store, restart recovery, lifecycle routes, saved reports, result query/filter APIs, export, dashboards, comparison, remote cloning, TypeScript parsing, or target-project code execution. Those later capabilities are intentionally available only in the complete-product branch.

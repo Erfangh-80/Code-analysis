@@ -1,21 +1,21 @@
 import { useMutation } from "@tanstack/react-query";
-import { FileCode2, GitBranch, LoaderCircle, Play, ShieldAlert, Sparkles } from "lucide-react";
+import { CalendarClock, FileCode2, GitBranch, LoaderCircle, Play, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
+import type { DateObject } from "react-multi-date-picker";
 
 import { ApiErrorState, EmptyState } from "@/components/molecules/async-state";
+import { JalaliDateTimeInput } from "@/components/molecules/jalali-date-time-input";
+import { PaginationControls, usePagination } from "@/components/molecules/pagination";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fileStatusLabels, formatNumber, languageLabels, metricLabels, riskLevelLabels } from "@/lib/analysis";
+import { emptyGitResultCauses, toIsoUtc, validateHistoryRange } from "@/lib/datetime";
 import { coreApi } from "@/services/api/core-api";
 import type { BatchAnalysis, GitAnalysisReport, RiskAnalysisRequest, RiskMetric, StaticAnalysisRequest } from "@/types/api";
 
 const staticMetrics: RiskMetric[] = ["lines_of_code", "max_function_length", "max_class_length"];
 const allMetrics: RiskMetric[] = [...staticMetrics, "git_churn", "change_frequency"];
-
-function relativeFiles(value: string) {
-  return [...new Set(value.split(/[\n,]/).map((path) => path.trim()).filter(Boolean))];
-}
 
 function sourceRowsForRisk(staticReport: BatchAnalysis, gitReport: GitAnalysisReport | undefined): RiskAnalysisRequest {
   const gitByPath = new Map(gitReport?.files.map((file) => [file.path, file]));
@@ -42,10 +42,9 @@ function sourceRowsForRisk(staticReport: BatchAnalysis, gitReport: GitAnalysisRe
 
 export function CoreAnalysisPage() {
   const [staticRootPath, setStaticRootPath] = useState("");
-  const [staticFiles, setStaticFiles] = useState("");
   const [repositoryPath, setRepositoryPath] = useState("");
-  const [historyFrom, setHistoryFrom] = useState("");
-  const [historyTo, setHistoryTo] = useState("");
+  const [historyFrom, setHistoryFrom] = useState<DateObject | null>(null);
+  const [historyTo, setHistoryTo] = useState<DateObject | null>(null);
   const [staticReport, setStaticReport] = useState<BatchAnalysis>();
   const [gitReport, setGitReport] = useState<GitAnalysisReport>();
 
@@ -70,15 +69,22 @@ export function CoreAnalysisPage() {
   );
   const isStaticOnlyScore = riskRequest ? (riskRequest.availableMetrics?.length ?? 0) === staticMetrics.length : false;
 
+  const rangeValidation = validateHistoryRange(historyFrom, historyTo);
+
+  const staticPagination = usePagination(staticReport?.files ?? [], staticReport);
+  const gitPagination = usePagination(gitReport?.files ?? [], gitReport);
+  const hotspotPagination = usePagination(riskAnalysis.data?.files ?? [], riskAnalysis.data);
+
   function submitStatic(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    staticAnalysis.mutate({ rootPath: staticRootPath.trim(), files: relativeFiles(staticFiles) });
+    staticAnalysis.mutate({ rootPath: staticRootPath.trim() });
   }
 
   function submitGit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const from = historyFrom ? new Date(historyFrom).toISOString() : undefined;
-    const to = historyTo ? new Date(historyTo).toISOString() : undefined;
+    if (rangeValidation.error) return;
+    const from = toIsoUtc(historyFrom);
+    const to = toIsoUtc(historyTo);
     gitAnalysis.mutate({ repositoryPath: repositoryPath.trim(), history: from || to ? { from, to } : undefined });
   }
 
@@ -97,17 +103,13 @@ export function CoreAnalysisPage() {
           <CardHeader>
             <FileCode2 className="size-5 text-primary" />
             <CardTitle className="mt-2">۱. تحلیل ایستای فایل‌ها</CardTitle>
-            <CardDescription>مسیر محلی root و فایل‌های نسبی Go، JavaScript یا Python را وارد کنید.</CardDescription>
+            <CardDescription>فقط مسیر مطلق ریشهٔ پروژه کافی است؛ فایل‌های Go، JavaScript و Python به‌صورت خودکار و امن کشف می‌شوند.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={submitStatic} noValidate>
               <label className="grid gap-2 text-sm font-extrabold">
                 مسیر مطلق ریشهٔ پروژه
                 <input className="h-10 rounded-md border bg-background px-3 font-mono text-sm" dir="ltr" value={staticRootPath} onChange={(event) => setStaticRootPath(event.target.value)} placeholder="/workspace/project" required />
-              </label>
-              <label className="grid gap-2 text-sm font-extrabold">
-                فایل‌های نسبی
-                <textarea className="min-h-28 rounded-md border bg-background p-3 font-mono text-sm" dir="ltr" value={staticFiles} onChange={(event) => setStaticFiles(event.target.value)} placeholder={"src/main.go\nsrc/api.js\npackage/model.py"} required />
               </label>
               <Button type="submit" disabled={staticAnalysis.isPending}>
                 {staticAnalysis.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
@@ -122,7 +124,7 @@ export function CoreAnalysisPage() {
           <CardHeader>
             <GitBranch className="size-5 text-primary" />
             <CardTitle className="mt-2">۲. تحلیل تاریخچهٔ Git</CardTitle>
-            <CardDescription>این مرحله فقط دادهٔ commit و diff یک worktree محلی موجود را به‌صورت read-only می‌خواند.</CardDescription>
+            <CardDescription>این مرحله فقط دادهٔ commit و diff یک worktree محلی موجود را به‌صورت read-only می‌خواند. تاریخ‌ها به تقویم شمسی انتخاب و نمایش داده می‌شوند.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={submitGit} noValidate>
@@ -131,14 +133,25 @@ export function CoreAnalysisPage() {
                 <input className="h-10 rounded-md border bg-background px-3 font-mono text-sm" dir="ltr" value={repositoryPath} onChange={(event) => setRepositoryPath(event.target.value)} placeholder="/workspace/project" required />
               </label>
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="grid gap-2 text-sm font-extrabold">از تاریخ
-                  <input className="h-10 rounded-md border bg-background px-3" type="datetime-local" dir="ltr" value={historyFrom} onChange={(event) => setHistoryFrom(event.target.value)} />
-                </label>
-                <label className="grid gap-2 text-sm font-extrabold">تا تاریخ
-                  <input className="h-10 rounded-md border bg-background px-3" type="datetime-local" dir="ltr" value={historyTo} onChange={(event) => setHistoryTo(event.target.value)} />
-                </label>
+                <JalaliDateTimeInput label="از تاریخ" value={historyFrom} onChange={setHistoryFrom} />
+                <JalaliDateTimeInput label="تا تاریخ" value={historyTo} onChange={setHistoryTo} />
               </div>
-              <Button type="submit" variant="outline" disabled={gitAnalysis.isPending}>
+              {rangeValidation.error && (
+                <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm font-bold text-destructive" role="alert">
+                  {rangeValidation.error}
+                </p>
+              )}
+              {rangeValidation.warnings.length > 0 && (
+                <ul className="space-y-1 rounded-md border border-warning/25 bg-warning/8 p-3 text-sm leading-6 text-muted-foreground">
+                  {rangeValidation.warnings.map((warning) => (
+                    <li key={warning} className="flex items-start gap-2">
+                      <TriangleAlert className="mt-1 size-4 shrink-0 text-[color:var(--warning)]" />
+                      {warning}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Button type="submit" variant="outline" disabled={gitAnalysis.isPending || Boolean(rangeValidation.error)}>
                 {gitAnalysis.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <GitBranch className="size-4" />}
                 تحلیل Git
               </Button>
@@ -155,11 +168,14 @@ export function CoreAnalysisPage() {
             <CardDescription>{formatNumber(staticReport.files.length)} فایل و {formatNumber(staticReport.modules.length)} ماژول از پاسخ واقعی API.</CardDescription>
           </CardHeader>
           <CardContent>
-            {staticReport.files.length === 0 ? <EmptyState title="فایل قابل‌تحلیلی بازنگشت" description="مسیرهای نسبی و پسوندهای پشتیبانی‌شده را بررسی کنید." /> : (
-              <Table>
-                <TableHeader><TableRow><TableHead>فایل</TableHead><TableHead>زبان</TableHead><TableHead>وضعیت</TableHead><TableHead>LOC</TableHead><TableHead>تابع / کلاس</TableHead></TableRow></TableHeader>
-                <TableBody>{staticReport.files.map((file) => <TableRow key={file.path}><TableCell className="font-mono text-xs" dir="ltr">{file.path}</TableCell><TableCell>{languageLabels[file.language]}</TableCell><TableCell>{fileStatusLabels[file.status]}</TableCell><TableCell>{formatNumber(file.metrics.linesOfCode)}</TableCell><TableCell>{formatNumber(file.metrics.functionCount)} / {formatNumber(file.metrics.classCount)}</TableCell></TableRow>)}</TableBody>
-              </Table>
+            {staticReport.files.length === 0 ? <EmptyState title="فایل قابل‌تحلیلی پیدا نشد" description="زیر این ریشه فایل Go، JavaScript یا Python وجود ندارد؛ مسیر مطلق و محدودهٔ مجاز سرور را بررسی کنید." /> : (
+              <>
+                <Table>
+                  <TableHeader><TableRow><TableHead>فایل</TableHead><TableHead>زبان</TableHead><TableHead>وضعیت</TableHead><TableHead>LOC</TableHead><TableHead>تابع / کلاس</TableHead></TableRow></TableHeader>
+                  <TableBody>{staticPagination.pageItems.map((file) => <TableRow key={file.path}><TableCell className="font-mono text-xs" dir="ltr">{file.path}</TableCell><TableCell>{languageLabels[file.language]}</TableCell><TableCell>{fileStatusLabels[file.status]}</TableCell><TableCell>{formatNumber(file.metrics.linesOfCode)}</TableCell><TableCell>{formatNumber(file.metrics.functionCount)} / {formatNumber(file.metrics.classCount)}</TableCell></TableRow>)}</TableBody>
+                </Table>
+                <PaginationControls label="صفحه‌بندی نتایج تحلیل ایستا" page={staticPagination.page} pageCount={staticPagination.pageCount} rangeStart={staticPagination.rangeStart} rangeEnd={staticPagination.rangeEnd} total={staticReport.files.length} onPageChange={staticPagination.setPage} />
+              </>
             )}
           </CardContent>
         </Card>
@@ -171,12 +187,31 @@ export function CoreAnalysisPage() {
             <CardTitle>نتیجهٔ تاریخچهٔ Git</CardTitle>
             <CardDescription>{formatNumber(gitReport.commitCount)} commit و {formatNumber(gitReport.files.length)} فایل با معیار واقعی تاریخچه.</CardDescription>
           </CardHeader>
-          <CardContent>
-            {gitReport.files.length === 0 ? <EmptyState title="دادهٔ تاریخچه‌ای در بازه پیدا نشد" description="ممکن است مخزن خالی باشد یا بازهٔ انتخاب‌شده commit نداشته باشد." /> : (
-              <Table>
-                <TableHeader><TableRow><TableHead>فایل</TableHead><TableHead>Churn</TableHead><TableHead>تغییر</TableHead><TableHead>نویسندگان</TableHead><TableHead>مسیر پیشین</TableHead></TableRow></TableHeader>
-                <TableBody>{gitReport.files.map((file) => <TableRow key={file.path}><TableCell className="font-mono text-xs" dir="ltr">{file.path}</TableCell><TableCell>{formatNumber(file.gitChurn)}</TableCell><TableCell>{formatNumber(file.changeFrequency)}</TableCell><TableCell>{formatNumber(file.authorCount)}</TableCell><TableCell className="font-mono text-xs" dir="ltr">{file.previousPaths.join(", ") || "—"}</TableCell></TableRow>)}</TableBody>
-              </Table>
+          <CardContent className="space-y-4">
+            {gitReport.commitCount === 0 && (
+              <div className="rounded-xl border border-warning/25 bg-warning/8 p-4">
+                <p className="flex items-center gap-2 text-sm font-extrabold">
+                  <CalendarClock className="size-4 text-[color:var(--warning)]" />
+                  در این بازه هیچ تحلیلی به‌دست نیامد — علت‌های محتمل:
+                </p>
+                <ul className="mt-2 space-y-1 text-sm leading-6 text-muted-foreground">
+                  {emptyGitResultCauses(Boolean(gitReport.history.from || gitReport.history.to)).map((cause) => <li key={cause}>• {cause}</li>)}
+                </ul>
+              </div>
+            )}
+            {gitReport.diagnostics.length > 0 && (
+              <ul className="space-y-1 rounded-md border p-3 text-sm leading-6 text-muted-foreground">
+                {gitReport.diagnostics.map((diagnostic) => <li key={`${diagnostic.code}-${diagnostic.message}`}>• {diagnostic.message}</li>)}
+              </ul>
+            )}
+            {gitReport.files.length > 0 && (
+              <>
+                <Table>
+                  <TableHeader><TableRow><TableHead>فایل</TableHead><TableHead>Churn</TableHead><TableHead>تغییر</TableHead><TableHead>نویسندگان</TableHead><TableHead>مسیر پیشین</TableHead></TableRow></TableHeader>
+                  <TableBody>{gitPagination.pageItems.map((file) => <TableRow key={file.path}><TableCell className="font-mono text-xs" dir="ltr">{file.path}</TableCell><TableCell>{formatNumber(file.gitChurn)}</TableCell><TableCell>{formatNumber(file.changeFrequency)}</TableCell><TableCell>{formatNumber(file.authorCount)}</TableCell><TableCell className="font-mono text-xs" dir="ltr">{file.previousPaths.join(", ") || "—"}</TableCell></TableRow>)}</TableBody>
+                </Table>
+                <PaginationControls label="صفحه‌بندی نتایج تاریخچهٔ Git" page={gitPagination.page} pageCount={gitPagination.pageCount} rangeStart={gitPagination.rangeStart} rangeEnd={gitPagination.rangeEnd} total={gitReport.files.length} onPageChange={gitPagination.setPage} />
+              </>
             )}
           </CardContent>
         </Card>
@@ -213,11 +248,12 @@ export function CoreAnalysisPage() {
           <CardContent className="space-y-5">
             <Table>
               <TableHeader><TableRow><TableHead>رتبه</TableHead><TableHead>فایل</TableHead><TableHead>امتیاز</TableHead><TableHead>سطح</TableHead><TableHead>مؤثرترین معیار</TableHead></TableRow></TableHeader>
-              <TableBody>{riskAnalysis.data.files.map((hotspot) => {
+              <TableBody>{hotspotPagination.pageItems.map((hotspot) => {
                 const leading = hotspot.contributions.slice().sort((left, right) => right.weighted - left.weighted)[0];
                 return <TableRow key={hotspot.path}><TableCell>{formatNumber(hotspot.rank)}</TableCell><TableCell className="font-mono text-xs" dir="ltr">{hotspot.path}</TableCell><TableCell className="font-black">{formatNumber(hotspot.score)}</TableCell><TableCell>{riskLevelLabels[hotspot.level]}</TableCell><TableCell>{leading ? metricLabels[leading.metric] : "—"}</TableCell></TableRow>;
               })}</TableBody>
             </Table>
+            <PaginationControls label="صفحه‌بندی Hotspotها" page={hotspotPagination.page} pageCount={hotspotPagination.pageCount} rangeStart={hotspotPagination.rangeStart} rangeEnd={hotspotPagination.rangeEnd} total={riskAnalysis.data.files.length} onPageChange={hotspotPagination.setPage} />
             {riskAnalysis.data.limitations.length > 0 && <div className="rounded-xl border border-warning/25 bg-warning/8 p-4"><p className="flex items-center gap-2 text-sm font-extrabold"><ShieldAlert className="size-4 text-[color:var(--warning)]" />محدودیت‌های مدل</p><ul className="mt-2 space-y-1 text-sm leading-6 text-muted-foreground">{riskAnalysis.data.limitations.map((limitation) => <li key={limitation}>• {limitation}</li>)}</ul></div>}
           </CardContent>
         </Card>

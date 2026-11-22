@@ -28,7 +28,10 @@ type FailureRecorder interface {
 	List() []domain.FailureRecord
 }
 
-// StaticAnalysisRequest identifies local files relative to one local root directory.
+// StaticAnalysisRequest identifies local files relative to one local root
+// directory. An empty Files list triggers bounded discovery of supported
+// source files below RootPath; explicit relative paths keep callers in full
+// control of the analyzed set.
 type StaticAnalysisRequest struct {
 	RootPath string
 	Files    []string
@@ -80,16 +83,21 @@ func (service *StaticAnalysisService) analyze(ctx context.Context, request Stati
 	if err != nil {
 		return domain.BatchAnalysis{}, err
 	}
-	if len(request.Files) == 0 {
-		return domain.BatchAnalysis{}, fmt.Errorf("%w: at least one file is required", ErrInvalidAnalysisRequest)
+	files := request.Files
+	if len(files) == 0 {
+		discovered, err := discoverSourceFiles(root, service.limits.MaxFiles)
+		if err != nil {
+			return domain.BatchAnalysis{}, err
+		}
+		files = discovered
 	}
-	if len(request.Files) > service.limits.MaxFiles {
+	if len(files) > service.limits.MaxFiles {
 		return domain.BatchAnalysis{}, fmt.Errorf("%w: requested file count exceeds the configured limit", analysisguard.ErrResourceLimit)
 	}
 
-	result := domain.BatchAnalysis{Files: make([]domain.FileAnalysis, 0, len(request.Files))}
+	result := domain.BatchAnalysis{Files: make([]domain.FileAnalysis, 0, len(files))}
 	var sourceBytes int64
-	for _, requestedPath := range request.Files {
+	for _, requestedPath := range files {
 		if err := ctx.Err(); err != nil {
 			return domain.BatchAnalysis{}, err
 		}
@@ -105,7 +113,7 @@ func (service *StaticAnalysisService) analyze(ctx context.Context, request Stati
 			service.recordFailure(analysis)
 		}
 		if onFile != nil {
-			onFile(len(result.Files), len(request.Files), analysis)
+			onFile(len(result.Files), len(files), analysis)
 		}
 	}
 

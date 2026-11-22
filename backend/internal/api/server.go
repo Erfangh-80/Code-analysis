@@ -135,7 +135,7 @@ func (handler *handler) handleStaticAnalysis(response http.ResponseWriter, reque
 	}
 	payload, err := decodeStaticAnalysisRequest(request)
 	if err != nil {
-		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "Provide an absolute local rootPath and one or more relative file paths.")
+		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "Provide an absolute local rootPath with optional relative file paths.")
 		return
 	}
 	result, err := handler.staticAnalysis.Analyze(request.Context(), application.StaticAnalysisRequest{RootPath: payload.RootPath, Files: payload.Files})
@@ -222,7 +222,7 @@ func decodeStaticAnalysisRequest(request *http.Request) (staticAnalysisRequest, 
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return staticAnalysisRequest{}, io.ErrUnexpectedEOF
 	}
-	if strings.TrimSpace(payload.RootPath) == "" || len(payload.Files) == 0 {
+	if strings.TrimSpace(payload.RootPath) == "" {
 		return staticAnalysisRequest{}, io.ErrUnexpectedEOF
 	}
 	return payload, nil

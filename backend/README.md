@@ -37,15 +37,12 @@ curl http://127.0.0.1:8080/api/v1/health
 
 ## Static-analysis API
 
-`POST /api/v1/static-analysis` accepts an absolute local `rootPath` and one or more paths relative to that root. It reads only those local files, detects Go, JavaScript, and Python by extension, and returns real file and module metrics.
+`POST /api/v1/static-analysis` accepts an absolute local `rootPath`. That alone is enough: when `files` is omitted or empty, the server performs a bounded discovery of supported Go, JavaScript, and Python sources below the root — sorted order, fixed skip list (`.git`, `node_modules`, `vendor`, `dist`, `build`, caches, …), no directory-symlink following, and file symlinks resolving outside the root are skipped. Discovery beyond the configured `--max-files` fails the request with `413` instead of silently truncating. You may still pass explicit project-relative `files` to analyze exactly that set.
 
 ```bash
 curl --request POST http://127.0.0.1:8080/api/v1/static-analysis \
   --header 'Content-Type: application/json' \
-  --data '{
-    "rootPath": "/absolute/path/to/local/repository",
-    "files": ["internal/service/worker.go", "web/app.js", "scripts/report.py"]
-  }'
+  --data '{ "rootPath": "/absolute/path/to/local/repository" }'
 ```
 
 The response includes:

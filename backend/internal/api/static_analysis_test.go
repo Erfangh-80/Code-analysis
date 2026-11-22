@@ -61,6 +61,36 @@ func TestStaticAnalysisEndpointUsesLocalFilesAndExposesRecordedFailures(t *testi
 	}
 }
 
+func TestStaticAnalysisEndpointDiscoversFilesFromRootPathAlone(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeAPIFixture(t, filepath.Join(root, "pkg", "sample.py"), "def value():\n    return 1\n")
+	writeAPIFixture(t, filepath.Join(root, "notes.txt"), "not source\n")
+
+	payload, err := json.Marshal(map[string]any{"rootPath": root})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	handler := NewHandler("test-version")
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/static-analysis", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var result domain.BatchAnalysis
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Files) != 1 || result.Files[0].Path != "pkg/sample.py" {
+		t.Errorf("result files = %+v, want only discovered pkg/sample.py", result.Files)
+	}
+}
+
 func TestStaticAnalysisEndpointRejectsUnsafeInput(t *testing.T) {
 	t.Parallel()
 
