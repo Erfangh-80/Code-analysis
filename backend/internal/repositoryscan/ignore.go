@@ -1,6 +1,7 @@
 package repositoryscan
 
 import (
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -10,6 +11,11 @@ import (
 // ignoreMatcher implements the Git-ignore features needed by the filesystem
 // fallback: comments, negation, directory rules, rooted rules, and * / **
 // globs. Git worktrees use Git itself for exact ignore semantics.
+const (
+	maxIgnoreFileBytes = 256 << 10
+	maxIgnoreRules     = 10_000
+)
+
 type ignoreMatcher struct {
 	root  string
 	rules []ignoreRule
@@ -31,11 +37,31 @@ func newIgnoreMatcher(root string) (*ignoreMatcher, error) {
 }
 
 func (matcher *ignoreMatcher) loadIgnoreFile(directory, base string) {
-	content, err := os.ReadFile(filepath.Join(directory, ".gitignore"))
+	if len(matcher.rules) >= maxIgnoreRules {
+		return
+	}
+	ignorePath := filepath.Join(directory, ".gitignore")
+	resolved, err := filepath.EvalSymlinks(ignorePath)
+	if err != nil {
+		return
+	}
+	relative, err := filepath.Rel(matcher.root, resolved)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, maxIgnoreFileBytes))
 	if err != nil {
 		return
 	}
 	for _, line := range strings.Split(string(content), "\n") {
+		if len(matcher.rules) >= maxIgnoreRules {
+			return
+		}
 		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

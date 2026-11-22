@@ -2,6 +2,7 @@
 package githistory
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Erfangh-80/code-analysis/backend/internal/analysisguard"
 	"github.com/Erfangh-80/code-analysis/backend/internal/domain"
 )
 
@@ -24,6 +26,8 @@ var (
 	ErrInvalidHistoryRange = errors.New("invalid Git history range")
 	// ErrHistoryUnavailable wraps read-only Git failures other than an empty history.
 	ErrHistoryUnavailable = errors.New("Git history is unavailable")
+	// ErrResourceLimit reports that bounded Git inspection stopped before consuming excessive resources.
+	ErrResourceLimit = analysisguard.ErrResourceLimit
 )
 
 const (
@@ -35,27 +39,78 @@ type commandRunner interface {
 	Run(context.Context, string, ...string) ([]byte, error)
 }
 
-type gitCommandRunner struct{}
+type gitCommandRunner struct {
+	maxOutputBytes int64
+}
 
-func (gitCommandRunner) Run(ctx context.Context, directory string, arguments ...string) ([]byte, error) {
+func (runner gitCommandRunner) Run(ctx context.Context, directory string, arguments ...string) ([]byte, error) {
 	commandArguments := append([]string{"-C", directory, "--no-pager"}, arguments...)
 	command := exec.CommandContext(ctx, "git", commandArguments...)
 	command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
-	output, err := command.CombinedOutput()
+	output := boundedOutput{limit: runner.maxOutputBytes}
+	command.Stdout = &output
+	command.Stderr = &output
+	err := command.Run()
+	if output.exceeded {
+		return nil, fmt.Errorf("%w: Git command output exceeded the configured limit", ErrResourceLimit)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("git command failed: %w", err)
 	}
-	return output, nil
+	return output.buffer.Bytes(), nil
+}
+
+type boundedOutput struct {
+	buffer   bytes.Buffer
+	limit    int64
+	written  int64
+	exceeded bool
+}
+
+func (output *boundedOutput) Write(value []byte) (int, error) {
+	if output.limit <= 0 {
+		output.limit = analysisguard.DefaultLimits().MaxGitOutputBytes
+	}
+	remaining := output.limit - output.written
+	if remaining <= 0 {
+		output.exceeded = true
+		return len(value), nil
+	}
+	if int64(len(value)) > remaining {
+		_, _ = output.buffer.Write(value[:remaining])
+		output.written += remaining
+		output.exceeded = true
+		return len(value), nil
+	}
+	written, err := output.buffer.Write(value)
+	output.written += int64(written)
+	return len(value), err
 }
 
 // Analyzer reads Git metadata and diffs without changing the target repository.
 type Analyzer struct {
-	runner commandRunner
+	runner     commandRunner
+	pathPolicy *analysisguard.PathPolicy
+	limits     analysisguard.Limits
 }
 
-// NewAnalyzer creates the production read-only Git analyzer.
+// NewAnalyzer creates a backwards-compatible read-only Git analyzer. The
+// production server must use NewAnalyzerWithGuards.
 func NewAnalyzer() *Analyzer {
-	return &Analyzer{runner: gitCommandRunner{}}
+	limits, _ := analysisguard.DefaultLimits().Normalize()
+	return &Analyzer{runner: gitCommandRunner{maxOutputBytes: limits.MaxGitOutputBytes}, limits: limits}
+}
+
+// NewAnalyzerWithGuards creates a bounded Git analyzer restricted to allowed local roots.
+func NewAnalyzerWithGuards(policy *analysisguard.PathPolicy, limits analysisguard.Limits) (*Analyzer, error) {
+	if policy == nil {
+		return nil, fmt.Errorf("%w: a path policy is required", analysisguard.ErrInvalidAllowedRoot)
+	}
+	normalized, err := limits.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	return &Analyzer{runner: gitCommandRunner{maxOutputBytes: normalized.MaxGitOutputBytes}, pathPolicy: policy, limits: normalized}, nil
 }
 
 // Analyze extracts commit and per-file history facts from a local repository.
@@ -126,16 +181,9 @@ func (analyzer *Analyzer) Analyze(ctx context.Context, request domain.GitAnalysi
 }
 
 func (analyzer *Analyzer) validateRepository(ctx context.Context, path string) (string, error) {
-	if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
-		return "", fmt.Errorf("%w: repositoryPath must be an absolute local path", ErrInvalidRepository)
-	}
-	resolvedPath, err := filepath.EvalSymlinks(path)
+	resolvedPath, err := analyzer.pathPolicy.ResolveDirectory(path)
 	if err != nil {
-		return "", fmt.Errorf("%w: repositoryPath is inaccessible", ErrInvalidRepository)
-	}
-	info, err := os.Stat(resolvedPath)
-	if err != nil || !info.IsDir() {
-		return "", fmt.Errorf("%w: repositoryPath is not a directory", ErrInvalidRepository)
+		return "", fmt.Errorf("%w: repositoryPath is invalid, inaccessible, or outside the allowed analysis roots", ErrInvalidRepository)
 	}
 
 	insideWorktree, err := analyzer.git(ctx, resolvedPath, "rev-parse", "--is-inside-work-tree")
@@ -146,7 +194,11 @@ func (analyzer *Analyzer) validateRepository(ctx context.Context, path string) (
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(root)), nil
+	repositoryRoot := strings.TrimSpace(string(root))
+	if analyzer.pathPolicy != nil && !analyzer.pathPolicy.Allows(repositoryRoot) {
+		return "", fmt.Errorf("%w: enclosing Git worktree is outside the allowed analysis roots", ErrInvalidRepository)
+	}
+	return repositoryRoot, nil
 }
 
 func (analyzer *Analyzer) hasNoCommits(ctx context.Context, repositoryRoot string) (bool, error) {
@@ -159,7 +211,7 @@ func (analyzer *Analyzer) hasNoCommits(ctx context.Context, repositoryRoot strin
 	if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
 		return true, nil
 	}
-	return false, fmt.Errorf("%w: %v", ErrHistoryUnavailable, err)
+	return false, fmt.Errorf("%w: %w", ErrHistoryUnavailable, err)
 }
 
 func (analyzer *Analyzer) isShallowRepository(ctx context.Context, repositoryRoot string) (bool, error) {
@@ -171,7 +223,7 @@ func (analyzer *Analyzer) isShallowRepository(ctx context.Context, repositoryRoo
 }
 
 func (analyzer *Analyzer) commits(ctx context.Context, repositoryRoot string, history domain.GitHistoryRange, scopePath string) ([]commit, error) {
-	arguments := []string{"log", "--reverse", "--format=%x1e%H%x1f%an%x1f%ae%x1f%cI"}
+	arguments := []string{"log", "--reverse", "--format=%x1e%H%x1f%an%x1f%ae%x1f%cI", "-n", strconv.Itoa(analyzer.limits.MaxGitCommits + 1)}
 	if history.From != nil {
 		arguments = append(arguments, "--since="+history.From.UTC().Format(time.RFC3339))
 	}
@@ -187,7 +239,14 @@ func (analyzer *Analyzer) commits(ctx context.Context, repositoryRoot string, hi
 	if err != nil {
 		return nil, err
 	}
-	return parseCommits(output)
+	commits, err := parseCommits(output)
+	if err != nil {
+		return nil, err
+	}
+	if len(commits) > analyzer.limits.MaxGitCommits {
+		return nil, fmt.Errorf("%w: the selected history exceeds the configured commit limit", ErrResourceLimit)
+	}
+	return commits, nil
 }
 
 func (analyzer *Analyzer) changesForCommit(ctx context.Context, repositoryRoot, hash, scopePath string) ([]fileChange, error) {
@@ -222,7 +281,7 @@ func (analyzer *Analyzer) changesForCommit(ctx context.Context, repositoryRoot, 
 func (analyzer *Analyzer) git(ctx context.Context, repositoryRoot string, arguments ...string) ([]byte, error) {
 	output, err := analyzer.runner.Run(ctx, repositoryRoot, arguments...)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrHistoryUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrHistoryUnavailable, err)
 	}
 	return output, nil
 }

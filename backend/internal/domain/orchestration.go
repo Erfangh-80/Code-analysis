@@ -101,9 +101,10 @@ type StageProgress struct {
 type StageSnapshot struct {
 	Stage       AnalysisStage `json:"stage"`
 	Status      StageStatus   `json:"status"`
-	StartedAt   *time.Time    `json:"startedAt,omitempty"`
-	CompletedAt *time.Time    `json:"completedAt,omitempty"`
-	Progress    StageProgress `json:"progress"`
+	StartedAt      *time.Time    `json:"startedAt,omitempty"`
+	CompletedAt    *time.Time    `json:"completedAt,omitempty"`
+	DurationMillis int64         `json:"durationMillis,omitempty"`
+	Progress       StageProgress `json:"progress"`
 }
 
 // AnalysisProgress is an aggregate, monotonic view of work completed by a run.

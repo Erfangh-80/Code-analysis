@@ -851,6 +851,10 @@ components:
         completedAt:
           type: [string, 'null']
           format: date-time
+        durationMillis:
+          type: integer
+          minimum: 0
+          description: Measured wall-clock stage duration. Omitted until a started stage reaches a terminal state.
         progress:
           $ref: '#/components/schemas/StageProgress'
     StageProgress:

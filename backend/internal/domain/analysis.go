@@ -47,6 +47,8 @@ const (
 	DiagnosticCodeInsufficientHistory DiagnosticCode = "INSUFFICIENT_HISTORY"
 	DiagnosticCodeShallowHistory      DiagnosticCode = "SHALLOW_HISTORY"
 	DiagnosticCodeGitHistoryError     DiagnosticCode = "GIT_HISTORY_ERROR"
+	// DiagnosticCodeResourceLimit marks work intentionally skipped to preserve host stability.
+	DiagnosticCodeResourceLimit       DiagnosticCode = "RESOURCE_LIMIT_EXCEEDED"
 )
 
 // Diagnostic describes an honest limitation or failure encountered while reading a file.

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Erfangh-80/code-analysis/backend/internal/analysisguard"
 	"github.com/Erfangh-80/code-analysis/backend/internal/analyzer/static"
 	"github.com/Erfangh-80/code-analysis/backend/internal/application"
 	"github.com/Erfangh-80/code-analysis/backend/internal/domain"
@@ -62,21 +63,33 @@ type handler struct {
 // NewHandler returns the local v1 API handler. The static-analysis API reads
 // only requested local files and never executes repository source.
 func NewHandler(version string) http.Handler {
-	return newHandler(version, nil)
+	return newHandler(version, nil, nil, nil)
 }
 
 // NewHandlerWithAnalysisService composes the local HTTP API with the durable
 // asynchronous analysis orchestration service.
 func NewHandlerWithAnalysisService(version string, analyses *application.Orchestrator) http.Handler {
-	return newHandler(version, analyses)
+	return newHandler(version, analyses, nil, nil)
 }
 
-func newHandler(version string, analyses *application.Orchestrator) http.Handler {
-	failures := failedfiles.NewRegistry()
+// NewHandlerWithServices composes the HTTP boundary with server-configured,
+// guarded static and Git services. The production composition root uses this
+// constructor so direct API endpoints obey the same path/resource policy.
+func NewHandlerWithServices(version string, analyses *application.Orchestrator, staticAnalysis *application.StaticAnalysisService, gitHistory *githistory.Analyzer) http.Handler {
+	return newHandler(version, analyses, staticAnalysis, gitHistory)
+}
+
+func newHandler(version string, analyses *application.Orchestrator, staticAnalysis *application.StaticAnalysisService, gitHistory *githistory.Analyzer) http.Handler {
+	if staticAnalysis == nil {
+		staticAnalysis = application.NewStaticAnalysisService(static.NewAnalyzer(), failedfiles.NewRegistry())
+	}
+	if gitHistory == nil {
+		gitHistory = githistory.NewAnalyzer()
+	}
 	return &handler{
 		version:        version,
-		staticAnalysis: application.NewStaticAnalysisService(static.NewAnalyzer(), failures),
-		gitHistory:     githistory.NewAnalyzer(),
+		staticAnalysis: staticAnalysis,
+		gitHistory:     gitHistory,
 		riskEngine:     scoring.NewEngine(),
 		analyses:       analyses,
 	}
@@ -148,6 +161,10 @@ func (handler *handler) handleStaticAnalysis(response http.ResponseWriter, reque
 		Files:    payload.Files,
 	})
 	if err != nil {
+		if errors.Is(err, analysisguard.ErrResourceLimit) {
+			writeError(response, http.StatusRequestEntityTooLarge, "RESOURCE_LIMIT_EXCEEDED", "The requested local analysis exceeds a configured resource limit.")
+			return
+		}
 		writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "The requested local analysis paths are invalid or inaccessible.")
 		return
 	}
@@ -166,6 +183,10 @@ func (handler *handler) handleGitAnalysis(response http.ResponseWriter, request 
 	}
 	report, err := handler.gitHistory.Analyze(request.Context(), payload)
 	if err != nil {
+		if errors.Is(err, githistory.ErrResourceLimit) {
+			writeError(response, http.StatusRequestEntityTooLarge, "RESOURCE_LIMIT_EXCEEDED", "The requested local Git analysis exceeds a configured resource limit.")
+			return
+		}
 		if errors.Is(err, githistory.ErrInvalidRepository) || errors.Is(err, githistory.ErrInvalidHistoryRange) {
 			writeError(response, http.StatusBadRequest, "VALIDATION_ERROR", "The local Git repository path or history range is invalid.")
 			return
