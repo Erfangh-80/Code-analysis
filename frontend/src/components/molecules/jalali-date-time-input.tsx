@@ -1,8 +1,15 @@
 import { useId } from "react";
-import DatePicker, { type DateObject } from "react-multi-date-picker";
-import TimePicker from "react-multi-date-picker/plugins/time_picker";
-import persian from "react-date-object/calendars/persian";
-import persian_fa from "react-date-object/locales/persian_fa";
+import DatePickerImport, { type DateObject } from "react-multi-date-picker";
+import persianCalendarImport from "react-date-object/calendars/persian";
+import persianFaLocaleImport from "react-date-object/locales/persian_fa";
+import TimePickerImport from "react-multi-date-picker/plugins/time_picker";
+
+import { unwrapCjs } from "@/lib/unwrap-cjs";
+
+const DatePicker = unwrapCjs(DatePickerImport);
+const TimePicker = unwrapCjs(TimePickerImport);
+const persian = unwrapCjs(persianCalendarImport);
+const persian_fa = unwrapCjs(persianFaLocaleImport);
 
 const timePlugins = [<TimePicker key="time" position="bottom" hideSeconds />];
 

@@ -6,6 +6,17 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  optimizeDeps: {
+    // Pre-bundle the CommonJS date-picker packages in one consistent graph so
+    // dev-mode interop matches production and duplicate module copies are avoided.
+    include: [
+      "react-multi-date-picker",
+      "react-multi-date-picker/plugins/time_picker",
+      "react-date-object",
+      "react-date-object/calendars/persian",
+      "react-date-object/locales/persian_fa",
+    ],
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
